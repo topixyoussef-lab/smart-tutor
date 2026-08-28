@@ -13,7 +13,7 @@ const MAX_CTX = 14000;
 /* ==================== STORAGE (IndexedDB) ==================== */
 const DB_NAME = 'smart-tutor-db';
 const DB_VERSION = 1;
-const STORE_NAMES = ['kv', 'books', 'pages', 'exams', 'results'];
+const STORE_NAMES = ['kv', 'books', 'pages', 'exams', 'results', 'files'];
 let _dbPromise = null;
 
 function openDb() {
@@ -86,6 +86,43 @@ async function idbAll(store, sortFn) {
   });
   if (sortFn) rows.sort(sortFn);
   return rows;
+}
+
+async function idbClear(store) {
+  const db = await openDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(store, 'readwrite');
+    const req = tx.objectStore(store).openCursor();
+    req.onsuccess = () => {
+      const cur = req.result;
+      if (cur) { cur.delete(); cur.continue(); }
+      else resolve();
+    };
+    req.onerror = () => reject(req.error);
+  });
+}
+
+function base64ToBlob(b64, type = 'application/octet-stream') {
+  try {
+    const bin = atob(b64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new Blob([bytes], { type });
+  } catch {
+    return null;
+  }
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => {
+      const url = String(r.result || '');
+      resolve(url.split(',')[1] || '');
+    };
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(blob);
+  });
 }
 
 /* ==================== STORE API ==================== */
@@ -725,7 +762,86 @@ async function handleApi(method, pathname, init) {
     }
   }
 
+  // ---------- backup (export / import) ----------
+  if (pathname === '/api/export' && method === 'POST') {
+    try {
+      const settings = await getSettings();
+      const books = await listBooks();
+      const exams = await listExams();
+      const results = await listResults();
+      const pages = {};
+      for (const b of books) pages[b.id] = await getPages(b.id);
+      const pdfs = {};
+      for (const b of books) {
+        const f = await idbGet('files', b.id);
+        if (f) {
+          try { pdfs[b.id] = await blobToBase64(f); } catch { /* skip */ }
+        }
+      }
+      const backup = {
+        version: 1,
+        app: 'smart-tutor',
+        exportedAt: new Date().toISOString(),
+        settings,
+        books,
+        pages,
+        exams,
+        results,
+        pdfs,
+      };
+      return json({ backup });
+    } catch (e) {
+      return json({ error: 'تعذّر إنشاء النسخة الاحتياطية: ' + (e?.message || e) }, 500);
+    }
+  }
+
+  if (pathname === '/api/import' && method === 'POST') {
+    try {
+      const body = (await readJsonBody(init)) || {};
+      const bk = body?.backup;
+      if (!bk || bk.app !== 'smart-tutor' || bk.version !== 1) {
+        return json({ error: 'ملف نسخة احتياطية غير صالح.' }, 400);
+      }
+      for (const s of ['kv', 'books', 'pages', 'exams', 'results', 'files']) await idbClear(s);
+      if (bk.settings) await idbSet('kv', 'settings', bk.settings);
+      for (const b of bk.books || []) await idbSet('books', b.id, b);
+      for (const id of Object.keys(bk.pages || {})) await idbSet('pages', id, bk.pages[id]);
+      for (const e of bk.exams || []) await idbSet('exams', e.id, e);
+      for (const r of bk.results || []) await idbSet('results', r.id, r);
+      for (const id of Object.keys(bk.pdfs || {})) {
+        const blob = base64ToBlob(bk.pdfs[id], 'application/pdf');
+        if (blob) await idbSet('files', id, blob);
+      }
+      return json({
+        ok: true,
+        books: (bk.books || []).length,
+        exams: (bk.exams || []).length,
+        results: (bk.results || []).length,
+        pdfs: Object.keys(bk.pdfs || {}).length,
+      });
+    } catch (e) {
+      return json({ error: 'تعذّر الاستيراد: ' + (e?.message || e) }, 500);
+    }
+  }
+
   // ---------- books ----------
+  const pdfRe = /^\/api\/books\/([^/]+)\/pdf$/;
+  let mp = pathname.match(pdfRe);
+  if (mp && method === 'GET') {
+    const bookId = decodeURIComponent(mp[1]);
+    const book = await getBook(bookId);
+    const file = await idbGet('files', bookId);
+    if (!book || !file) return json({ error: 'الملف الأصلي غير متوفر على هذا الجهاز' }, 404);
+    const name = encodeURIComponent(book.fileName || `${book.title}.pdf`);
+    return new Response(file, {
+      status: 200,
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `attachment; filename="${book.fileName || 'book.pdf'}"; filename*=UTF-8''${name}`,
+      },
+    });
+  }
+
   if (pathname === '/api/books') {
     if (method === 'GET') {
       const books = (await listBooks()).map((b) => ({
@@ -968,6 +1084,7 @@ async function* uploadBookStream(file, title, maxPages) {
     chapters: result.chapters,
   });
   await savePages(id, result.pages);
+  await idbSet('files', id, file);
 
   yield {
     type: 'result',

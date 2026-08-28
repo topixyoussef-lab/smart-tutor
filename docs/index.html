@@ -234,6 +234,18 @@
           <p class="text-xs text-slate-500 leading-relaxed" data-i18n="settingsNote"></p>
         </div>
       </div>
+      <div class="card p-6 mt-5">
+        <h2 class="card-title">النسخ الاحتياطي على جهازك</h2>
+        <p class="text-xs text-slate-500 leading-relaxed mt-2">بياناتك محفوظة داخل متصفح هذا الجهاز. نزّل نسخة احتياطية (ملف واحد على جهازك) لتحتفظ بها أينما أردت — تشمل كتبك ونصوصها وامتحاناتك ونتائجك وملفات PDF الأصلية — وأعد استيرادها عند الحاجة (حتى على جهاز آخر).</p>
+        <div class="flex flex-wrap gap-2 mt-3">
+          <button id="backupExportBtn" class="btn-primary text-sm">تنزيل نسخة احتياطية</button>
+          <label class="btn-secondary text-sm cursor-pointer px-4 py-2">استيراد نسخة...
+            <input id="backupImportInput" type="file" accept=".json,application/json" class="hidden" />
+          </label>
+        </div>
+        <div id="backupStatus" class="text-xs font-bold mt-2"></div>
+        <p class="text-xs text-slate-400 leading-relaxed mt-3">لمسح البيانات نهائياً من المتصفح: اضغط F12 ثم من تبويب Application اختر IndexedDB ← smart-tutor-db ← Delete.</p>
+      </div>
     </div>
   </section>
 </main>
@@ -263,5 +275,6 @@
 
 <script type="module" src="backend.js"></script>
 <script src="app.js"></script>
+<script src="backup.js"></script>
 </body>
 </html>
