@@ -1,0 +1,85 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [4 0 R 6 0 R 8 0 R 10 0 R 12 0 R] /Count 5 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 5 0 R /Resources << /Font << /F1 3 0 R >> >> >>
+endobj
+5 0 obj
+<< /Length 289 >>
+stream
+BT /F1 22 Tf 72 702 Td (Chapter 1  The Nature of Science) Tj ET
+BT /F1 13 Tf 72 676 Td (Science is a systematic enterprise that builds knowledge in the form of testable) Tj ET
+BT /F1 13 Tf 72 650 Td (explanations about the universe. It relies on observation and evidence.) Tj ET
+endstream
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 7 0 R /Resources << /Font << /F1 3 0 R >> >> >>
+endobj
+7 0 obj
+<< /Length 239 >>
+stream
+BT /F1 22 Tf 72 702 Td (Chapter 2  Motion in One Dimension) Tj ET
+BT /F1 13 Tf 72 676 Td (Position, velocity and acceleration describe motion. The equations: v = u + a t, s = u t) Tj ET
+BT /F1 13 Tf 72 650 Td (+ 0.5 a t^2) Tj ET
+endstream
+endobj
+8 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 9 0 R /Resources << /Font << /F1 3 0 R >> >> >>
+endobj
+9 0 obj
+<< /Length 258 >>
+stream
+BT /F1 22 Tf 72 702 Td (Chapter 3  Newton Laws of Motion) Tj ET
+BT /F1 13 Tf 72 676 Td (Newton first law: inertia. Newton second law: F = m a. Newton third law: every action) Tj ET
+BT /F1 13 Tf 72 650 Td (has an equal and opposite reaction.) Tj ET
+endstream
+endobj
+10 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 11 0 R /Resources << /Font << /F1 3 0 R >> >> >>
+endobj
+11 0 obj
+<< /Length 181 >>
+stream
+BT /F1 22 Tf 72 702 Td (Chapter 4  Work Energy and Power) Tj ET
+BT /F1 13 Tf 72 676 Td (Work done W = F d cos theta. Kinetic energy K = 0.5 m v^2. Power P = W / t.) Tj ET
+endstream
+endobj
+12 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 13 0 R /Resources << /Font << /F1 3 0 R >> >> >>
+endobj
+13 0 obj
+<< /Length 227 >>
+stream
+BT /F1 22 Tf 72 702 Td (Chapter 5  Optics) Tj ET
+BT /F1 13 Tf 72 676 Td (Light reflects and refracts. Snell law and the thin lens equation 1/f = 1/u + 1/v define) Tj ET
+BT /F1 13 Tf 72 650 Td (image formation.) Tj ET
+endstream
+endobj
+xref
+0 14
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000141 00000 n 
+0000000211 00000 n 
+0000000337 00000 n 
+0000000666 00000 n 
+0000000792 00000 n 
+0000001071 00000 n 
+0000001197 00000 n 
+0000001495 00000 n 
+0000001623 00000 n 
+0000001845 00000 n 
+0000001973 00000 n 
+trailer
+<< /Size 14 /Root 1 0 R >>
+startxref
+2241
+%%EOF

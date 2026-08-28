@@ -1,0 +1,22 @@
+services:
+  - type: web
+    name: smart-tutor
+    runtime: node
+    rootDir: app
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+      - key: OPENROUTER_API_KEY
+        sync: false
+      - key: MOONSHOT_API_KEY
+        sync: false
+      - key: DEFAULT_PROVIDER
+        value: openrouter
+      - key: DEFAULT_MODEL
+        value: minimax/minimax-m3:free

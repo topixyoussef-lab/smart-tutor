@@ -1,0 +1,26 @@
+{
+  "name": "smart-tutor",
+  "version": "1.0.0",
+  "description": "المُدرِّس الذكي — نظام دراسة يعتمد على AI لشرح الكتب وتوليد الامتحانات",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node scripts/e2e-test.mjs",
+    "test:ui": "node scripts/ui-smoke.mjs",
+    "test:keys": "node scripts/test-keys.mjs",
+    "sample": "node scripts/make-sample-pdf.mjs"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "multer": "^2.0.0",
+    "pdfjs-dist": "^4.8.69"
+  },
+  "devDependencies": {
+    "jsdom": "^25.0.1"
+  }
+}
