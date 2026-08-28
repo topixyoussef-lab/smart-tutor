@@ -1,0 +1,14 @@
+{
+  "name": "smart-tutor-mobile",
+  "version": "1.0.0",
+  "description": "Smart Tutor Android app (bundled browser build)",
+  "private": true,
+  "scripts": {
+    "sync": "cap sync android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.5.0",
+    "@capacitor/cli": "^8.5.0",
+    "@capacitor/core": "^8.5.0"
+  }
+}

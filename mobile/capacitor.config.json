@@ -1,0 +1,11 @@
+{
+  "appId": "com.smarttutor.app",
+  "appName": "Smart Tutor",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false
+  }
+}
