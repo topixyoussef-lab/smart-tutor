@@ -399,19 +399,19 @@
         const cxv = x + BW / 2;
         const cyv = y + BH / 2;
         s += '<polygon points="' + cxv + ',' + (cyv - rh) + ' ' + (cxv + rw) + ',' + cyv + ' ' + cxv + ',' + (cyv + rh) + ' ' + (cxv - rw) + ',' + cyv + '" fill="' + color.fill + '" stroke="' + color.stroke + '" stroke-width="1.8" />';
-        s += '<text x="' + cxv + '" y="' + (cyv - 4) + '" text-anchor="middle" font-size="12" font-weight="700" fill="' + color.text + '">' + esc(lines[0] || '') + '</text>';
-        if (lines[1]) s += '<text x="' + cxv + '" y="' + (cyv + 14) + '" text-anchor="middle" font-size="12" font-weight="700" fill="' + color.text + '">' + esc(lines[1]) + '</text>';
+        s += '<text direction="rtl" text-anchor="middle" x="' + cxv + '" y="' + (cyv - 4) + '" font-size="12" font-weight="700" fill="' + color.text + '">' + esc(lines[0] || '') + '</text>';
+        if (lines[1]) s += '<text direction="rtl" text-anchor="middle" x="' + cxv + '" y="' + (cyv + 14) + '" font-size="12" font-weight="700" fill="' + color.text + '">' + esc(lines[1]) + '</text>';
       } else {
         const rx = n.kind === 'start' || n.kind === 'end' ? BH / 2 : 8;
         s += '<rect x="' + x + '" y="' + y + '" width="' + BW + '" height="' + BH + '" rx="' + rx + '" fill="' + color.fill + '" stroke="' + color.stroke + '" stroke-width="1.8" />';
         const baseY = y + (lines.length === 1 ? BH / 2 + 5 : BH / 2 - 6);
-        s += '<text x="' + (x + 12) + '" y="' + baseY + '" font-size="13" font-weight="700" fill="' + color.text + '">' + esc(lines[0] || '') + '</text>';
-        if (lines[1]) s += '<text x="' + (x + 12) + '" y="' + (baseY + 17) + '" font-size="13" font-weight="700" fill="' + color.text + '">' + esc(lines[1]) + '</text>';
+        s += '<text direction="rtl" text-anchor="start" x="' + (x + BW - 14) + '" y="' + baseY + '" font-size="13" font-weight="700" fill="' + color.text + '">' + esc(lines[0] || '') + '</text>';
+        if (lines[1]) s += '<text direction="rtl" text-anchor="start" x="' + (x + BW - 14) + '" y="' + (baseY + 17) + '" font-size="13" font-weight="700" fill="' + color.text + '">' + esc(lines[1]) + '</text>';
       }
     }
 
     if (data.title) {
-      s += '<text x="' + (W / 2) + '" y="18" text-anchor="middle" font-size="14" font-weight="800" fill="#334155">' + esc(data.title) + '</text>';
+      s += '<text direction="rtl" text-anchor="middle" x="' + (W / 2) + '" y="18" font-size="14" font-weight="800" fill="#334155">' + esc(data.title) + '</text>';
     }
     s += '</svg>';
     return { svg: s, width: W, height: H };
