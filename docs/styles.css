@@ -255,3 +255,27 @@ select.input { cursor: pointer; }
 .diagram-draw::-webkit-scrollbar { width: 9px; height: 9px; }
 .diagram-draw::-webkit-scrollbar-thumb { background: #c7d2fe; border-radius: 999px; }
 .diagram-draw::-webkit-scrollbar-track { background: transparent; }
+
+/* ---------- fullscreen / maximize mode ---------- */
+.fs-btn .fs-out { display: none; }
+.fs-btn.fs-on .fs-in { display: none; }
+.fs-btn.fs-on .fs-out { display: block; }
+
+body.fs-open { overflow: hidden; }
+
+.fs-active {
+  position: fixed !important;
+  inset: 0 !important;
+  z-index: 60 !important;
+  width: auto !important;
+  max-width: none !important;
+  height: 100vh !important;
+  margin: 0 !important;
+  border-radius: 0 !important;
+  overflow-y: auto;
+}
+
+body.fs-open #pdfBody,
+body.fs-open #diagramBody {
+  max-height: calc(100vh - 9.5rem) !important;
+}

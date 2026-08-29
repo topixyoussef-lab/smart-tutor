@@ -9,6 +9,7 @@ const LABELS = {
     btnUpload: 'رفع الكتاب وتحليل فعوله', myBooks: 'كتبي',
     lblBook: 'الكتاب', lblChapter: 'الفصل', lblExplainStyle: 'أسلوب الشرح', lblChapters: 'الفصول المشمولة', lblLevel: 'المستوى', lblTypes: 'أنواع الأسئلة', lblCount: 'عدد الأسئلة', lblExamLang: 'لغة الامتحان', lblProvider: 'مزوّد الذكاء الاصطناعي', lblModel: 'الموديل', lblKey: 'مفتاح API', lblUILang: 'لغة الواجهة',
     styleDetailed: 'شرح مفصّل', styleSimple: 'مبسّط', styleExamFocus: 'مركّز للامتحانات',
+    fsEnter: 'ملء الشاشة', fsExit: 'الخروج من ملء الشاشة',
     btnExplain: 'اشرح لي', btnDiagram: '🌐 الرسم والمخططات', btnSummary: 'ملخص', btnStop: 'إيقاف', btnSend: 'إرسال', btnGenerate: 'توليد الامتحان', btnSave: 'حفظ',
     askFollowUp: 'اسأل عن هذا الفصل', newExam: 'امتحان جديد', myExams: 'الامتحانات',
     pdfPaneTitle: '📄 صفحات الكتاب',
@@ -43,6 +44,7 @@ const LABELS = {
     btnUpload: 'Upload & index book', myBooks: 'My books',
     lblBook: 'Book', lblChapter: 'Chapter', lblExplainStyle: 'Explanation style', lblChapters: 'Chapters included', lblLevel: 'Level', lblTypes: 'Question types', lblCount: 'Number of questions', lblExamLang: 'Exam language', lblProvider: 'AI provider', lblModel: 'Model', lblKey: 'API key', lblUILang: 'UI language',
     styleDetailed: 'Detailed', styleSimple: 'Simplified', styleExamFocus: 'Exam-focused',
+    fsEnter: 'Fullscreen', fsExit: 'Exit fullscreen',
     btnExplain: 'Explain', btnDiagram: '🌐 Visual Diagram', btnSummary: 'Summary', btnStop: 'Stop', btnSend: 'Send', btnGenerate: 'Generate exam', btnSave: 'Save',
     askFollowUp: 'Ask about this chapter', newExam: 'New exam', myExams: 'My exams',
     pdfPaneTitle: '📄 Book pages',
@@ -470,6 +472,38 @@ function setStatusChip(text, className = '') {
 }
 
 function clearStatusChip() { $('#statusChip').innerHTML = ''; }
+
+const fsState = { el: null };
+
+function fsButtons() {
+  return ['paneFsBtn', 'explainFsBtn'].map((id) => document.getElementById(id)).filter(Boolean);
+}
+
+function setFullscreenTarget(el) {
+  if (!el || el.classList.contains('hidden')) return;
+  const prev = fsState.el;
+  if (prev) prev.classList.remove('fs-active');
+  if (prev === el) { el = null; } else { el.classList.add('fs-active'); }
+  document.body.classList.toggle('fs-open', !!el);
+  fsState.el = el;
+  fsButtons().forEach((b) => {
+    const mine = !!(el && b.dataset.fsTarget === el.id);
+    b.classList.toggle('fs-on', mine);
+    b.title = mine ? L().fsExit : L().fsEnter;
+  });
+  setTimeout(() => window.dispatchEvent(new Event('resize')), 60);
+}
+
+function bindFullscreen() {
+  fsButtons().forEach((b) => b.addEventListener('click', () => {
+    const el = document.getElementById(b.dataset.fsTarget);
+    if (!el || el.classList.contains('hidden')) return;
+    setFullscreenTarget(el);
+  }));
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && fsState.el) setFullscreenTarget(fsState.el);
+  });
+}
 
 function bindLearn() {
   $('#learnBook').addEventListener('change', (e) => {
@@ -1004,6 +1038,7 @@ async function init() {
   document.querySelectorAll('.tab-btn').forEach((b) => b.addEventListener('click', () => switchTab(b.dataset.tab)));
   bindUpload();
   bindLearn();
+  bindFullscreen();
   bindExamForm();
   bindSettings();
   switchTab('library');
