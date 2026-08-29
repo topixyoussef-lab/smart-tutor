@@ -247,3 +247,11 @@ select.input { cursor: pointer; }
 .pdf-scroll { scroll-behavior: smooth; }
 #pdfBody { background: #f4f4f5; }
 #pdfBody:empty { display: none; }
+
+/* ---------- diagram (flowchart) viewer ---------- */
+#diagramCanvas { transition: transform .15s; }
+#diagramCanvas svg { display: block; }
+.diagram-draw { scroll-behavior: smooth; }
+.diagram-draw::-webkit-scrollbar { width: 9px; height: 9px; }
+.diagram-draw::-webkit-scrollbar-thumb { background: #c7d2fe; border-radius: 999px; }
+.diagram-draw::-webkit-scrollbar-track { background: transparent; }

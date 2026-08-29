@@ -549,6 +549,87 @@ function summaryMessages({ bookTitle, chapterTitle, chapterText, lang }) {
   return [systemTeacher(lang), { role: 'user', content: user }];
 }
 
+const DIAGRAM_SCHEMA_EXPLANATION = `{
+  "title": "عنوان قصير للمخطط",
+  "nodes": [
+    { "id": "n1", "text": "مفهوم أو خطوة قصيرة", "kind": "start" },
+    { "id": "n2", "text": "خطوة أو مفهوم", "kind": "process" },
+    { "id": "n3", "text": "سؤال أو تفرّع", "kind": "decision" },
+    { "id": "n4", "text": "النتيجة النهائية", "kind": "end" }
+  ],
+  "edges": [
+    { "from": "n1", "to": "n2", "label": "" },
+    { "from": "n2", "to": "n3", "label": "اختياري" },
+    { "from": "n3", "to": "n4", "label": "" }
+  ]
+}`;
+
+function diagramMessages({ bookTitle, chapterTitle, chapterText, lang }) {
+  const user =
+    lang === 'ar'
+      ? `أنشئ "شرحاً مرئياً مخططاً (Flowchart)" يلخّص أهم مفاهيم الفصل وترابطها وتسلسل تعلمه، ثم أرجِع JSON حصراً بالقالب التالي بدون أي كلام أو علامات آخر:
+${DIAGRAM_SCHEMA_EXPLANATION}
+الشروط:
+- kind "start" لعقدة البداية، و"end" للنهاية، و"decision" لتفرّع أو سؤال، و"process" لكل البقية.
+- اجعل النصوص قصيرة جداً (أقل من 6 كلمات) بأسلوب واضح مبسّط، واترك label فارغاً إن لم يكن ضرورياً.
+- عدد العقد بين 8 و 22، واربطها بترتيب منطقي يوضّح تسلسل الموضوع (المفهوم ← الأمثلة ← القوانين/الخطوات ← التطبيق).
+- كلمات المخطط بالعربية ما عدا المصطلحات الأجنبية الشائعة.
+
+**الكتاب:** ${bookTitle}
+**الفصل:** ${chapterTitle}
+**نص الفصل من الكتاب:**
+${chapterText}`
+      : `Create a "visual flowchart-based explanation" summarizing this chapter's key ideas, their connections, and a logical learning sequence, then return ONLY JSON (no other text, no code fences) in this exact schema:
+${DIAGRAM_SCHEMA_EXPLANATION}
+Rules:
+- kind "start" for the starting node, "end" for the end node, "decision" for a branch/question, "process" for everything else.
+- Keep every node text very short (under 6 words), and leave "label" empty unless truly needed.
+- Use 8 to 22 nodes, chained in a logical order (concept → examples → formula/steps → application).
+- Diagram words in English (keep well-known terms as-is).
+
+**Book:** ${bookTitle}
+**Chapter:** ${chapterTitle}
+**Chapter text from the book:**
+${chapterText}`;
+  return [systemTeacher(lang), { role: 'user', content: user }];
+}
+
+function normalizeDiagram(data) {
+  const src = data && Array.isArray(data.nodes) ? data : ((data && (data.flowchart || data.diagram)) || null);
+  if (!src || !Array.isArray(src.nodes)) throw new Error('الموديل لم يُرجع مخططاً صالحاً.');
+  const ids = new Set();
+  const nodes = [];
+  for (const n of src.nodes.slice(0, 40)) {
+    const id = String(n && (n.id !== undefined && n.id !== null ? n.id : n.i || ''));
+    const text = String(n && (n.text || n.label || '')).trim().slice(0, 60);
+    if (!id || !text || ids.has(id)) continue;
+    ids.add(id);
+    nodes.push({ id, text, kind: n.kind === 'start' || n.kind === 'end' || n.kind === 'decision' ? n.kind : 'process' });
+  }
+  if (!nodes.length) throw new Error('الموديل لم يُرجع عقداً صالحة.');
+  const edges = [];
+  for (const e of Array.isArray(src.edges) ? src.edges : []) {
+    const from = String(e && (e.from !== undefined ? e.from : e.src || ''));
+    const to = String(e && (e.to !== undefined ? e.to : e.dst || ''));
+    if (!from || !to || !ids.has(from) || !ids.has(to)) continue;
+    edges.push({ from, to, label: String(e && (e.label || e.text || '')).trim().slice(0, 40) });
+  }
+  return { title: String(data && data.title || (src.title || '')).trim().slice(0, 80), nodes, edges };
+}
+
+async function diagramHandler(body) {
+  const { bookId, chapterId, lang } = body;
+  const book = await getBook(bookId);
+  const chapter = await getChapterById(book, chapterId);
+  if (!book || !chapter) return { status: 404, error: 'الفصل أو الكتاب غير موجود' };
+  const pages = await getPages(bookId);
+  const text = sliceContext(chapterText(pages, chapter), MAX_CTX);
+  if (!text.trim()) return { status: 400, error: 'لا يوجد نص مستخرج لهذا الفصل. أعد رفع الكتاب دون تحديد حد أقصى لعدد الصفحات.' };
+  const msgs = diagramMessages({ bookTitle: book.title, chapterTitle: chapter.title, chapterText: text, lang });
+  const data = await chatJson(msgs, { temperature: 0.5, maxTokens: 3000 });
+  return { diagram: normalizeDiagram(data) };
+}
+
 const EXAM_SCHEMA_EXPLANATION = `{
   "questions": [
     {
@@ -920,6 +1001,10 @@ async function handleApi(method, pathname, init) {
   if (pathname === '/api/summarize' && method === 'POST') {
     const body = (await readJsonBody(init)) || {};
     return jsonResponse(summarizeHandler(body));
+  }
+  if (pathname === '/api/diagram' && method === 'POST') {
+    const body = (await readJsonBody(init)) || {};
+    return jsonResponse(diagramHandler(body));
   }
 
   // ---------- exams ----------

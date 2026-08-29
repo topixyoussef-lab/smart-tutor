@@ -9,10 +9,12 @@ const LABELS = {
     btnUpload: 'رفع الكتاب وتحليل فعوله', myBooks: 'كتبي',
     lblBook: 'الكتاب', lblChapter: 'الفصل', lblExplainStyle: 'أسلوب الشرح', lblChapters: 'الفصول المشمولة', lblLevel: 'المستوى', lblTypes: 'أنواع الأسئلة', lblCount: 'عدد الأسئلة', lblExamLang: 'لغة الامتحان', lblProvider: 'مزوّد الذكاء الاصطناعي', lblModel: 'الموديل', lblKey: 'مفتاح API', lblUILang: 'لغة الواجهة',
     styleDetailed: 'شرح مفصّل', styleSimple: 'مبسّط', styleExamFocus: 'مركّز للامتحانات',
-    btnExplain: 'اشرح لي', btnSummary: 'ملخص', btnStop: 'إيقاف', btnSend: 'إرسال', btnGenerate: 'توليد الامتحان', btnSave: 'حفظ',
+    btnExplain: 'اشرح لي', btnDiagram: '🌐 رسم توضيحي', btnSummary: 'ملخص', btnStop: 'إيقاف', btnSend: 'إرسال', btnGenerate: 'توليد الامتحان', btnSave: 'حفظ',
     askFollowUp: 'اسأل عن هذا الفصل', newExam: 'امتحان جديد', myExams: 'الامتحانات',
     pdfPaneTitle: '📄 صفحات الكتاب',
     pdfShow: '📄 صفحات الكتاب', pdfHide: 'إخفاء صفحات الكتاب', pdfRangeHint: 'صفحات الفصل:',
+    panePdfTab: '📄 صفحات الكتاب', paneDiagramTab: '🌐 الرسم التوضيحي', diagramTitle: '🌐 المخطط الانسيابي',
+    diagramThinking: 'جاري رسم مخطط الفصل...', diagramNoApi: 'أضف مفتاح API من الإعدادات أولاً',
     lvEasy: 'سهل', lvMedium: 'متوسط', lvHard: 'صعب',
     typeConcept: 'مفهومي', typeProblem: 'مسائل',
     topicsSummary: 'نقاط الضعف الأكثر تكراراً ', history: 'تاريخ الاختبارات',
@@ -41,10 +43,12 @@ const LABELS = {
     btnUpload: 'Upload & index book', myBooks: 'My books',
     lblBook: 'Book', lblChapter: 'Chapter', lblExplainStyle: 'Explanation style', lblChapters: 'Chapters included', lblLevel: 'Level', lblTypes: 'Question types', lblCount: 'Number of questions', lblExamLang: 'Exam language', lblProvider: 'AI provider', lblModel: 'Model', lblKey: 'API key', lblUILang: 'UI language',
     styleDetailed: 'Detailed', styleSimple: 'Simplified', styleExamFocus: 'Exam-focused',
-    btnExplain: 'Explain', btnSummary: 'Summary', btnStop: 'Stop', btnSend: 'Send', btnGenerate: 'Generate exam', btnSave: 'Save',
+    btnExplain: 'Explain', btnDiagram: '🌐 Diagram', btnSummary: 'Summary', btnStop: 'Stop', btnSend: 'Send', btnGenerate: 'Generate exam', btnSave: 'Save',
     askFollowUp: 'Ask about this chapter', newExam: 'New exam', myExams: 'My exams',
     pdfPaneTitle: '📄 Book pages',
     pdfShow: '📄 Book pages', pdfHide: 'Hide book pages', pdfRangeHint: 'Chapter pages:',
+    panePdfTab: '📄 Book pages', paneDiagramTab: '🌐 Diagram', diagramTitle: '🌐 Flowchart',
+    diagramThinking: 'Drawing the chapter flowchart...', diagramNoApi: 'Add an API key in Settings first',
     lvEasy: 'Easy', lvMedium: 'Medium', lvHard: 'Hard',
     typeConcept: 'Conceptual', typeProblem: 'Problems',
     topicsSummary: 'Most frequent weak topics', history: 'Test history',
@@ -453,6 +457,12 @@ function showChapterPdf() {
   }
 }
 
+function showChapterDiagram() {
+  if (!state.learn.bookId || !state.learn.chapterId) { toast(L().chooseChapter); return; }
+  if (window.DiagramView) window.DiagramView.show(state.learn.bookId, state.learn.chapterId);
+  updatePdfToggleUI();
+}
+
 function setStatusChip(text, className = '') {
   const chip = $('#statusChip');
   chip.className = `inline-flex items-center gap-2 text-xs font-bold ${className}`;
@@ -482,6 +492,12 @@ function bindLearn() {
       if (!state.learn.bookId || !state.learn.chapterId) { toast(L().chooseChapter); return; }
       showChapterPdf();
     }
+  });
+
+  $('#diagramBtn').addEventListener('click', () => showChapterDiagram());
+  window.addEventListener('diagram-requested', () => showChapterDiagram());
+  window.addEventListener('pdf-requested', () => {
+    if (state.learn.bookId && state.learn.chapterId) showChapterPdf();
   });
 
   $('#explainBtn').addEventListener('click', async () => {

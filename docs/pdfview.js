@@ -128,6 +128,7 @@
     if (!file) { setPaneVisible(true); msg('الملف الأصلي غير متوفر لهذا الكتاب', true); window.dispatchEvent(new Event('pdf-pane')); return; }
     msg('جاري تحميل الصفحات...');
     setPaneVisible(true);
+    if (window.DiagramView && window.DiagramView.setTab) window.DiagramView.setTab('pdf');
     window.dispatchEvent(new Event('pdf-pane'));
 
     if (st.doc) { try { st.doc.destroy(); } catch { /* noop */ } }
@@ -229,5 +230,277 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
   else init();
 
-  window.PdfViewer = { show, clear, toggle };
+  window.PdfViewer = { show, clear, toggle, isPaneVisible, hasDoc: () => !!st.doc };
+})();
+
+/* ============================================================
+   Smart Tutor — Visual / Diagram-based explanation (Flowchart)
+   يلوّن الفصل كمخطط انسيابي (SVG خالص بدون مكتبات خارجية).
+   ============================================================ */
+(function () {
+  'use strict';
+
+  const $ = (id) => document.getElementById(id);
+
+  const KIND_COLOR = {
+    start: { fill: '#d1fae5', stroke: '#059669', text: '#065f46' },
+    end: { fill: '#ffe4e6', stroke: '#e11d48', text: '#9f1239' },
+    decision: { fill: '#fef3c7', stroke: '#d97706', text: '#92400e' },
+    process: { fill: '#e0e7ff', stroke: '#4f46e5', text: '#3730a3' },
+  };
+
+  const st = { controller: null, scale: 1, layout: null };
+
+  function pane() { return $('pdfPane'); }
+  function isPaneVisible() { return pane() ? !pane().classList.contains('hidden') : false; }
+
+  function setPaneVisible(visible) {
+    if (pane()) pane().classList.toggle('hidden', !visible);
+    window.dispatchEvent(new Event('pdf-pane'));
+  }
+
+  function showTab(tab) {
+    const tPdf = $('paneTabPdf');
+    const tDia = $('paneTabDiagram');
+    if (!tPdf) return;
+    const pdfWrap = $('pdfPanePdf');
+    const diaWrap = $('diagramPaneBox');
+    if (tab === 'diagram') {
+      tPdf.classList.remove('btn-primary'); tPdf.classList.add('btn-ghost');
+      tDia.classList.remove('btn-ghost'); tDia.classList.add('btn-primary');
+      if (pdfWrap) pdfWrap.classList.add('hidden');
+      if (diaWrap) diaWrap.classList.remove('hidden');
+    } else {
+      tDia.classList.remove('btn-primary'); tDia.classList.add('btn-ghost');
+      tPdf.classList.remove('btn-ghost'); tPdf.classList.add('btn-primary');
+      if (diaWrap) diaWrap.classList.add('hidden');
+      if (pdfWrap) pdfWrap.classList.remove('hidden');
+    }
+  }
+
+  function diagramMsg(text, isError) {
+    const m = $('diagramMsg');
+    if (!m) return;
+    m.innerHTML = text || '';
+    m.className = 'text-xs text-center py-8 px-2 ' + (isError ? 'text-rose-600 font-bold' : 'text-slate-500');
+    m.classList.toggle('hidden', !text);
+  }
+
+  function computeLayers(nodes, edges) {
+    const ids = nodes.map((n) => n.id);
+    const out = new Map();
+    const indeg = new Map();
+    const adj = new Map();
+    ids.forEach((id) => { out.set(id, []); indeg.set(id, 0); adj.set(id, []); });
+    for (const e of edges) {
+      if (!out.has(e.from) || !out.has(e.to)) continue;
+      adj.get(e.from).push(e.to);
+      indeg.set(e.to, (indeg.get(e.to) || 0) + 1);
+    }
+    const layer = new Map();
+    ids.forEach((id) => layer.set(id, 0));
+    const q = ids.filter((id) => (indeg.get(id) || 0) === 0);
+    const seen = new Set(q);
+    while (q.length) {
+      const u = q.shift();
+      for (const v of adj.get(u)) {
+        layer.set(v, Math.max(layer.get(v) || 0, (layer.get(u) || 0) + 1));
+        indeg.set(v, indeg.get(v) - 1);
+        if (!seen.has(v)) { seen.add(v); q.push(v); }
+      }
+    }
+    return layer;
+  }
+
+  function wrapText(text, maxLen) {
+    const words = String(text || '').split(/\s+/).filter(Boolean);
+    const lines = [];
+    let cur = '';
+    for (const w of words) {
+      if ((cur + ' ' + w).trim().length > maxLen && cur) { lines.push(cur.trim()); cur = w; }
+      else cur = (cur + ' ' + w).trim();
+      if (lines.length >= 2) break;
+    }
+    if (cur) lines.push(cur.trim());
+    return lines.slice(0, 2);
+  }
+
+  function esc(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  function buildSvg(data) {
+    const BW = 235;
+    const BH = 58;
+    const HGAP = 96;
+    const VGAP = 34;
+    const CH = VGAP + BH;
+    const PAD = 24;
+
+    const layer = computeLayers(data.nodes, data.edges);
+    const colOf = (id) => layer.get(id) || 0;
+
+    const maxCol = Math.max(0, ...data.nodes.map((n) => colOf(n.id)));
+    const cols = [];
+    for (let c = 0; c <= maxCol; c++) cols.push([]);
+    data.nodes.forEach((n) => cols[colOf(n.id)].push(n.id));
+    const rowIndex = new Map();
+    cols.forEach((col, c) => col.forEach((id, i) => rowIndex.set(id, { c, i })));
+
+    const maxRows = Math.max(1, ...cols.map((c) => c.length));
+    const W = PAD * 2 + (maxCol + 1) * BW + maxCol * HGAP;
+    const H = PAD * 2 + maxRows * CH - VGAP;
+    const cx = (id) => PAD + rowIndex.get(id).c * (BW + HGAP);
+    const cy = (id) => PAD + rowIndex.get(id).i * CH;
+
+    const markerId = 'arr' + Math.random().toString(36).slice(2, 8);
+    let s = '<svg xmlns="http://www.w3.org/2000/svg" width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" font-family="Cairo, sans-serif" direction="rtl">';
+    s += '<defs><marker id="' + markerId + '" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#94a3b8"/></marker></defs>';
+
+    for (const e of data.edges) {
+      const x1 = cx(e.from) + BW;
+      const y1 = cy(e.from) + BH / 2;
+      const x2 = cx(e.to);
+      const y2 = cy(e.to) + BH / 2;
+      const mx = (x1 + x2) / 2;
+      const d = 'M' + x1 + ' ' + y1 + ' L' + mx + ' ' + y1 + ' L' + mx + ' ' + y2 + ' L' + x2 + ' ' + y2;
+      s += '<path d="' + d + '" fill="none" stroke="#94a3b8" stroke-width="1.6" marker-end="url(#' + markerId + ')" />';
+      if (e.label) {
+        const lx = mx + 6;
+        s += '<text x="' + lx + '" y="' + ((y1 + y2) / 2 - 4) + '" font-size="11" fill="#64748b">' + esc(e.label) + '</text>';
+      }
+    }
+
+    for (const n of data.nodes) {
+      const color = KIND_COLOR[n.kind] || KIND_COLOR.process;
+      const x = cx(n.id);
+      const y = cy(n.id);
+      const lines = wrapText(n.text, 18);
+      if (n.kind === 'decision') {
+        const rw = BW / 2 + 18;
+        const rh = BH / 2 + 14;
+        const cxv = x + BW / 2;
+        const cyv = y + BH / 2;
+        s += '<polygon points="' + cxv + ',' + (cyv - rh) + ' ' + (cxv + rw) + ',' + cyv + ' ' + cxv + ',' + (cyv + rh) + ' ' + (cxv - rw) + ',' + cyv + '" fill="' + color.fill + '" stroke="' + color.stroke + '" stroke-width="1.8" />';
+        s += '<text x="' + cxv + '" y="' + (cyv - 4) + '" text-anchor="middle" font-size="12" font-weight="700" fill="' + color.text + '">' + esc(lines[0] || '') + '</text>';
+        if (lines[1]) s += '<text x="' + cxv + '" y="' + (cyv + 14) + '" text-anchor="middle" font-size="12" font-weight="700" fill="' + color.text + '">' + esc(lines[1]) + '</text>';
+      } else {
+        const rx = n.kind === 'start' || n.kind === 'end' ? BH / 2 : 8;
+        s += '<rect x="' + x + '" y="' + y + '" width="' + BW + '" height="' + BH + '" rx="' + rx + '" fill="' + color.fill + '" stroke="' + color.stroke + '" stroke-width="1.8" />';
+        const baseY = y + (lines.length === 1 ? BH / 2 + 5 : BH / 2 - 6);
+        s += '<text x="' + (x + 12) + '" y="' + baseY + '" font-size="13" font-weight="700" fill="' + color.text + '">' + esc(lines[0] || '') + '</text>';
+        if (lines[1]) s += '<text x="' + (x + 12) + '" y="' + (baseY + 17) + '" font-size="13" font-weight="700" fill="' + color.text + '">' + esc(lines[1]) + '</text>';
+      }
+    }
+
+    if (data.title) {
+      s += '<text x="' + (W / 2) + '" y="18" text-anchor="middle" font-size="14" font-weight="800" fill="#334155">' + esc(data.title) + '</text>';
+    }
+    s += '</svg>';
+    return { svg: s, width: W, height: H };
+  }
+
+  function applyScale() {
+    const canvas = $('diagramCanvas');
+    if (!canvas || !st.layout) return;
+    const s = st.scale;
+    canvas.style.transform = 'scale(' + s + ')';
+    canvas.style.width = (st.layout.width * s) + 'px';
+    canvas.style.height = (st.layout.height * s) + 'px';
+  }
+
+  async function load(bookId, chapterId) {
+    if (st.controller) st.controller.abort();
+    const controller = new AbortController();
+    st.controller = controller;
+
+    setPaneVisible(true);
+    showTab('diagram');
+    diagramMsg('<div class="spinner mx-auto mb-2"></div>جاري رسم مخطط الفصل...');
+    const hint = $('diagramHint');
+    if (hint) { hint.textContent = ''; hint.classList.add('hidden'); }
+
+    const lang = document.documentElement.lang === 'en' ? 'en' : 'ar';
+    try {
+      const res = await fetch('/api/diagram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bookId, chapterId, lang }),
+        signal: controller.signal,
+      });
+      const data = res && res.ok ? await res.json() : null;
+      if (controller.signal.aborted || st.controller !== controller) return;
+      if (!data || !data.diagram) throw new Error((data && data.error) || 'لا توجد استجابة');
+      const built = buildSvg(data.diagram);
+      st.layout = { width: built.width, height: built.height };
+      st.scale = 1;
+      const canvas = $('diagramCanvas');
+      if (canvas) {
+        canvas.innerHTML = built.svg;
+        applyScale();
+      }
+      const t = $('diagramTitle');
+      if (t && data.diagram.title) t.textContent = '🌐 ' + data.diagram.title;
+      diagramMsg('');
+      console.log('[SmartTutor] diagram ready', data.diagram.nodes.length, 'nodes');
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+      diagramMsg('تعذّر إنشاء الرسم التوضيحي: ' + (e && e.message ? e.message : e), true);
+      const hintEl = $('diagramHint');
+      if (hintEl) { hintEl.textContent = 'نصيحة: تأكد من ضبط مفتاح API في الإعدادات، أو جرّب موديلاً أقوى. يمكنك أيضاً الضغط على «↻» لإعادة المحاولة.'; hintEl.classList.remove('hidden'); }
+    } finally {
+      st.controller = null;
+    }
+  }
+
+  function zoom(factor) {
+    if (!st.layout) return;
+    st.scale = Math.min(2.5, Math.max(0.5, Math.round(st.scale * factor * 100) / 100));
+    applyScale();
+  }
+
+  function clear() {
+    if (st.controller) { st.controller.abort(); st.controller = null; }
+    st.layout = null;
+    st.scale = 1;
+    const canvas = $('diagramCanvas');
+    if (canvas) canvas.innerHTML = '';
+    diagramMsg('');
+    const hint = $('diagramHint');
+    if (hint) hint.classList.add('hidden');
+    setPaneVisible(false);
+  }
+
+  function init() {
+    const redo = $('diagramRedo');
+    if (redo) {
+      redo.addEventListener('click', () => {
+        if (!st.bookId) return;
+        load(st.bookId, st.chapterId);
+      });
+    }
+    const zi = $('diagramZoomInBtn'); if (zi) zi.addEventListener('click', () => zoom(1.2));
+    const zo = $('diagramZoomOutBtn'); if (zo) zo.addEventListener('click', () => zoom(0.85));
+    const hide = $('diagramHideBtn'); if (hide) hide.addEventListener('click', clear);
+    const tPdf = $('paneTabPdf'); if (tPdf) tPdf.addEventListener('click', () => {
+      showTab('pdf');
+      if (!window.PdfViewer || !window.PdfViewer.hasDoc()) window.dispatchEvent(new CustomEvent('pdf-requested'));
+    });
+    const tDia = $('paneTabDiagram'); if (tDia) tDia.addEventListener('click', () => {
+      showTab('diagram');
+      if (!st.layout) window.dispatchEvent(new CustomEvent('diagram-requested'));
+    });
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
+
+  window.DiagramView = {
+    show: async (bookId, chapterId) => { st.bookId = bookId; st.chapterId = chapterId; await load(bookId, chapterId); },
+    clear,
+    zoom,
+    setTab: showTab,
+    isPaneVisible,
+    getLayout: () => st.layout,
+  };
 })();
