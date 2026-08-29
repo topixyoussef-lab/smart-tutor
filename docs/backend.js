@@ -1343,3 +1343,10 @@ window.fetch = (input, init = {}) => {
 };
 
 console.log('[SmartTutor] in-browser backend ready');
+
+/* Expose internals for the PDF side-panel viewer */
+window.__SMART = {
+  pdfjs,
+  getOriginalFile: (id) => idbGet('files', id),
+  getBook: (id) => getBook(id),
+};

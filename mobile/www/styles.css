@@ -241,3 +241,9 @@ select.input { cursor: pointer; }
 ::-webkit-scrollbar-thumb { background: #c7d2fe; border-radius: 999px; }
 ::-webkit-scrollbar-thumb:hover { background: #a5b4fc; }
 ::-webkit-scrollbar-track { background: transparent; }
+
+/* ---------- pdf side viewer ---------- */
+.pdf-page canvas { display: block; }
+.pdf-scroll { scroll-behavior: smooth; }
+#pdfBody { background: #f4f4f5; }
+#pdfBody:empty { display: none; }

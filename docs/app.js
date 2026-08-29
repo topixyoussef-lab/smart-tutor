@@ -11,6 +11,7 @@ const LABELS = {
     styleDetailed: 'شرح مفصّل', styleSimple: 'مبسّط', styleExamFocus: 'مركّز للامتحانات',
     btnExplain: 'اشرح لي', btnSummary: 'ملخص', btnStop: 'إيقاف', btnSend: 'إرسال', btnGenerate: 'توليد الامتحان', btnSave: 'حفظ',
     askFollowUp: 'اسأل عن هذا الفصل', newExam: 'امتحان جديد', myExams: 'الامتحانات',
+    pdfPaneTitle: '📄 صفحات الكتاب',
     lvEasy: 'سهل', lvMedium: 'متوسط', lvHard: 'صعب',
     typeConcept: 'مفهومي', typeProblem: 'مسائل',
     topicsSummary: 'نقاط الضعف الأكثر تكراراً ', history: 'تاريخ الاختبارات',
@@ -41,6 +42,7 @@ const LABELS = {
     styleDetailed: 'Detailed', styleSimple: 'Simplified', styleExamFocus: 'Exam-focused',
     btnExplain: 'Explain', btnSummary: 'Summary', btnStop: 'Stop', btnSend: 'Send', btnGenerate: 'Generate exam', btnSave: 'Save',
     askFollowUp: 'Ask about this chapter', newExam: 'New exam', myExams: 'My exams',
+    pdfPaneTitle: '📄 Book pages',
     lvEasy: 'Easy', lvMedium: 'Medium', lvHard: 'Hard',
     typeConcept: 'Conceptual', typeProblem: 'Problems',
     topicsSummary: 'Most frequent weak topics', history: 'Test history',
@@ -416,6 +418,22 @@ function renderLearn() {
   $('#explainContent').innerHTML = '';
   $('#explainBox').classList.add('hidden');
   $('#chatBox').innerHTML = '';
+  if (window.PdfViewer) window.PdfViewer.clear();
+}
+
+function chapterPageRange() {
+  const b = state.books.find((x) => x.id === state.learn.bookId);
+  if (!b) return null;
+  if (state.learn.chapterId !== '__all__') {
+    const c = (b.chapters || []).find((x) => x.id === state.learn.chapterId);
+    if (c) return { start: c.pageStart || 1, end: c.pageEnd || b.pageCount || c.pageStart || 1 };
+  }
+  return { start: 1, end: b.pageCount || 1 };
+}
+
+function showChapterPdf() {
+  const pr = chapterPageRange();
+  if (pr && window.PdfViewer) window.PdfViewer.show(state.learn.bookId, pr.start, pr.end);
 }
 
 function setStatusChip(text, className = '') {
@@ -432,11 +450,25 @@ function bindLearn() {
     state.learn.chapterId = null;
     fillLearnSelects();
   });
-  $('#learnChapter').addEventListener('change', (e) => { state.learn.chapterId = e.target.value; });
+  $('#learnChapter').addEventListener('change', (e) => {
+    state.learn.chapterId = e.target.value;
+    if (window.PdfViewer) window.PdfViewer.clear();
+  });
+
+  $('#pdfToggleBtn').addEventListener('click', () => {
+    const pane = $('#pdfPane');
+    if (pane && !pane.classList.contains('hidden')) {
+      if (window.PdfViewer) window.PdfViewer.clear();
+    } else {
+      if (!state.learn.bookId || !state.learn.chapterId) { toast(L().chooseChapter); return; }
+      showChapterPdf();
+    }
+  });
 
   $('#explainBtn').addEventListener('click', async () => {
     if (!state.learn.bookId || !state.learn.chapterId) { toast(L().chooseChapter); return; }
     if (state.explain.controller) { state.explain.controller.abort(); }
+    showChapterPdf();
     const controller = new AbortController();
     state.explain.controller = controller;
     $('#explainBox').classList.remove('hidden');
@@ -477,6 +509,7 @@ function bindLearn() {
 
   $('#summaryBtn').addEventListener('click', async () => {
     if (!state.learn.bookId || !state.learn.chapterId) { toast(L().chooseChapter); return; }
+    showChapterPdf();
     $('#explainBox').classList.remove('hidden');
     $('#explainContent').innerHTML = '<div class="spinner mx-auto my-6"></div>';
     try {
