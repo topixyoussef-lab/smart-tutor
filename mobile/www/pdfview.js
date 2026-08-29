@@ -398,15 +398,15 @@
         const rh = BH / 2 + 14;
         const cxv = x + BW / 2;
         const cyv = y + BH / 2;
-        s += '<polygon points="' + cxv + ',' + (cyv - rh) + ' ' + (cxv + rw) + ',' + cyv + ' ' + cxv + ',' + (cyv + rh) + ' ' + (cxv - rw) + ',' + cyv + '" fill="' + color.fill + '" stroke="' + color.stroke + '" stroke-width="1.8" />';
-        s += '<text direction="rtl" text-anchor="middle" x="' + cxv + '" y="' + (cyv - 4) + '" font-size="12" font-weight="700" fill="' + color.text + '">' + esc(lines[0] || '') + '</text>';
-        if (lines[1]) s += '<text direction="rtl" text-anchor="middle" x="' + cxv + '" y="' + (cyv + 14) + '" font-size="12" font-weight="700" fill="' + color.text + '">' + esc(lines[1]) + '</text>';
+        s += '<polygon data-nid="' + esc(n.id) + '" points="' + cxv + ',' + (cyv - rh) + ' ' + (cxv + rw) + ',' + cyv + ' ' + cxv + ',' + (cyv + rh) + ' ' + (cxv - rw) + ',' + cyv + '" fill="' + color.fill + '" stroke="' + color.stroke + '" stroke-width="1.8" />';
+        s += '<text data-nid="' + esc(n.id) + '" direction="rtl" text-anchor="middle" x="' + cxv + '" y="' + (cyv - 4) + '" font-size="12" font-weight="700" fill="' + color.text + '">' + esc(lines[0] || '') + '</text>';
+        if (lines[1]) s += '<text data-nid="' + esc(n.id) + '" direction="rtl" text-anchor="middle" x="' + cxv + '" y="' + (cyv + 14) + '" font-size="12" font-weight="700" fill="' + color.text + '">' + esc(lines[1]) + '</text>';
       } else {
         const rx = n.kind === 'start' || n.kind === 'end' ? BH / 2 : 8;
-        s += '<rect x="' + x + '" y="' + y + '" width="' + BW + '" height="' + BH + '" rx="' + rx + '" fill="' + color.fill + '" stroke="' + color.stroke + '" stroke-width="1.8" />';
+        s += '<rect data-nid="' + esc(n.id) + '" x="' + x + '" y="' + y + '" width="' + BW + '" height="' + BH + '" rx="' + rx + '" fill="' + color.fill + '" stroke="' + color.stroke + '" stroke-width="1.8" />';
         const baseY = y + (lines.length === 1 ? BH / 2 + 5 : BH / 2 - 6);
-        s += '<text direction="rtl" text-anchor="start" x="' + (x + BW - 14) + '" y="' + baseY + '" font-size="13" font-weight="700" fill="' + color.text + '">' + esc(lines[0] || '') + '</text>';
-        if (lines[1]) s += '<text direction="rtl" text-anchor="start" x="' + (x + BW - 14) + '" y="' + (baseY + 17) + '" font-size="13" font-weight="700" fill="' + color.text + '">' + esc(lines[1]) + '</text>';
+        s += '<text data-nid="' + esc(n.id) + '" direction="rtl" text-anchor="middle" x="' + (x + BW / 2) + '" y="' + baseY + '" font-size="13" font-weight="700" fill="' + color.text + '">' + esc(lines[0] || '') + '</text>';
+        if (lines[1]) s += '<text data-nid="' + esc(n.id) + '" direction="rtl" text-anchor="middle" x="' + (x + BW / 2) + '" y="' + (baseY + 17) + '" font-size="13" font-weight="700" fill="' + color.text + '">' + esc(lines[1]) + '</text>';
       }
     }
 
