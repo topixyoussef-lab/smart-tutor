@@ -270,6 +270,7 @@
       tDia.classList.remove('btn-ghost'); tDia.classList.add('btn-primary');
       if (pdfWrap) pdfWrap.classList.add('hidden');
       if (diaWrap) diaWrap.classList.remove('hidden');
+      if (st.layout) setTimeout(() => fit(), 40);
     } else {
       tDia.classList.remove('btn-primary'); tDia.classList.add('btn-ghost');
       tPdf.classList.remove('btn-ghost'); tPdf.classList.add('btn-primary');
@@ -330,12 +331,12 @@
   }
 
   function buildSvg(data) {
-    const BW = 235;
-    const BH = 58;
-    const HGAP = 96;
-    const VGAP = 40;
+    const BW = 260;
+    const BH = 62;
+    const HGAP = 118;
+    const VGAP = 44;
     const CH = VGAP + BH;
-    const PAD = 24;
+    const PAD = 28;
 
     const layer = computeLayers(data.nodes, data.edges);
     const colOf = (id) => layer.get(id) || 0;
@@ -425,6 +426,20 @@
     canvas.style.height = (st.layout.height * s) + 'px';
   }
 
+  function fit() {
+    const canvas = $('diagramCanvas');
+    const body = $('diagramBody');
+    const box = $('diagramPaneBox');
+    if (!canvas || !body || !st.layout) return;
+    if (box && box.classList.contains('hidden')) return;
+    const pad = 18;
+    const availW = Math.max(140, body.clientWidth - pad);
+    const availH = Math.max(140, body.clientHeight - pad);
+    const s = Math.min(availW / st.layout.width, availH / st.layout.height, 1);
+    st.scale = Math.max(0.1, Math.round(s * 100) / 100);
+    applyScale();
+  }
+
   async function load(bookId, chapterId) {
     if (st.controller) st.controller.abort();
     const controller = new AbortController();
@@ -453,11 +468,13 @@
       const canvas = $('diagramCanvas');
       if (canvas) {
         canvas.innerHTML = built.svg;
-        applyScale();
       }
       const t = $('diagramTitle');
       if (t && data.diagram.title) t.textContent = '🌐 ' + data.diagram.title;
       diagramMsg('');
+      setTimeout(() => {
+        if (st.layout) { fit(); setTimeout(fit, 120); }
+      }, 30);
       console.log('[SmartTutor] diagram ready', data.diagram.nodes.length, 'nodes');
     } catch (e) {
       if (e.name === 'AbortError') return;
@@ -495,9 +512,11 @@
         load(st.bookId, st.chapterId);
       });
     }
+    const fitBtn = $('diagramFitBtn'); if (fitBtn) fitBtn.addEventListener('click', () => { if (st.layout) fit(); });
     const zi = $('diagramZoomInBtn'); if (zi) zi.addEventListener('click', () => zoom(1.2));
     const zo = $('diagramZoomOutBtn'); if (zo) zo.addEventListener('click', () => zoom(0.85));
     const hide = $('diagramHideBtn'); if (hide) hide.addEventListener('click', clear);
+    window.addEventListener('resize', () => { if (st.layout) setTimeout(fit, 60); });
     const tPdf = $('paneTabPdf'); if (tPdf) tPdf.addEventListener('click', () => {
       showTab('pdf');
       if (!window.PdfViewer || !window.PdfViewer.hasDoc()) window.dispatchEvent(new CustomEvent('pdf-requested'));

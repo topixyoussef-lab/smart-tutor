@@ -572,7 +572,7 @@ ${DIAGRAM_SCHEMA_EXPLANATION}
 الشروط:
 - kind "start" لعقدة البداية، و"end" للنهاية، و"decision" لتفرّع أو سؤال، و"process" لكل البقية.
 - اجعل النصوص قصيرة جداً (أقل من 6 كلمات) بأسلوب واضح مبسّط.
-- عدد العقد بين 10 و 28.
+- غطِّ الفصل كاملاً في رسم واحد كامل: عدد العقد بين 12 و 45 لتشمل كل المفاهيم والأمثلة والخطوات.
 - اربط المفاهيم بخطوط كثيرة تبين علاقاتها الحقيقية: ارسم سلسلة التسلسل الرئيسية (المفهوم ← الأمثلة ← القوانين/الخطوات ← التطبيق) ثم أضف علاقات جانبية بين أي مفهومين مرتبطين غير متتاليين، مثل "يعتمد على" أو "مثال على" أو "يؤدي إلى" أو "يقارن بـ" (ضع label لها)، ولا تكتفِ بخط واحد بين كل عقدتين.
 - اجعل label أسهم التفرّع من عقدة decision واضحة مثل "نعم" / "لا".
 - لا تربط بشكل عكسي ولا تضع حلقات ذاتية.
@@ -587,7 +587,7 @@ ${DIAGRAM_SCHEMA_EXPLANATION}
 Rules:
 - kind "start" for the starting node, "end" for the end node, "decision" for a branch/question, "process" for everything else.
 - Keep every node text very short (under 6 words).
-- Use 10 to 28 nodes.
+- Cover the ENTIRE chapter in ONE complete diagram: use 12 to 45 nodes to include every concept, example, and step.
 - Connect concepts with MANY of arrows showing their real relationships: draw the main learning chain (concept → examples → formula/steps → application), then ADD extra cross-links between any two related non-consecutive concepts (label them, e.g. "depends on", "example of", "leads to", "compares with"). Do not settle for just one edge between each pair.
 - Make the arrows from every "decision" node clearly labeled (e.g. "Yes" / "No").
 - No backward edges and no self-loops.
@@ -605,7 +605,7 @@ function normalizeDiagram(data) {
   if (!src || !Array.isArray(src.nodes)) throw new Error('الموديل لم يُرجع مخططاً صالحاً.');
   const ids = new Set();
   const nodes = [];
-  for (const n of src.nodes.slice(0, 40)) {
+  for (const n of src.nodes.slice(0, 60)) {
     const id = String(n && (n.id !== undefined && n.id !== null ? n.id : n.i || ''));
     const text = String(n && (n.text || n.label || '')).trim().slice(0, 60);
     if (!id || !text || ids.has(id)) continue;
@@ -632,7 +632,7 @@ async function diagramHandler(body) {
   const text = sliceContext(chapterText(pages, chapter), MAX_CTX);
   if (!text.trim()) return { status: 400, error: 'لا يوجد نص مستخرج لهذا الفصل. أعد رفع الكتاب دون تحديد حد أقصى لعدد الصفحات.' };
   const msgs = diagramMessages({ bookTitle: book.title, chapterTitle: chapter.title, chapterText: text, lang });
-  const data = await chatJson(msgs, { temperature: 0.5, maxTokens: 3000 });
+  const data = await chatJson(msgs, { temperature: 0.5, maxTokens: 8000 });
   return { diagram: normalizeDiagram(data) };
 }
 
