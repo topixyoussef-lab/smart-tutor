@@ -333,65 +333,104 @@
   function buildSvg(data) {
     const BW = 260;
     const BH = 62;
-    const HGAP = 118;
-    const VGAP = 44;
-    const CH = VGAP + BH;
-    const PAD = 28;
+    const VGAP = 56;
+    const HSPACE = 76;
+    const PAD = 32;
 
-    const layer = computeLayers(data.nodes, data.edges);
-    const colOf = (id) => layer.get(id) || 0;
+    const ids = data.nodes.map((n) => n.id);
+    const idSet = new Set(ids);
 
-    const maxCol = Math.max(0, ...data.nodes.map((n) => colOf(n.id)));
-    const cols = [];
-    for (let c = 0; c <= maxCol; c++) cols.push([]);
-    data.nodes.forEach((n) => cols[colOf(n.id)].push(n.id));
-    const rowIndex = new Map();
-    cols.forEach((col, c) => col.forEach((id, i) => rowIndex.set(id, { c, i })));
+    const children = new Map();
+    ids.forEach((id) => children.set(id, []));
+    const parent = new Map();
+    const extraEdges = [];
+    for (const e of data.edges) {
+      if (!idSet.has(e.from) || !idSet.has(e.to) || e.from === e.to) { extraEdges.push(e); continue; }
+      if (parent.has(e.to)) { extraEdges.push(e); continue; }
+      parent.set(e.to, e.from);
+      children.get(e.from).push(e.to);
+    }
+    const roots = ids.filter((id) => !parent.has(id));
+    if (!roots.length) {
+      const start = data.nodes.find((n) => n.kind === 'start');
+      roots.push(start ? start.id : ids[0]);
+    }
 
-    const maxRows = Math.max(1, ...cols.map((c) => c.length));
-    const W = PAD * 2 + (maxCol + 1) * BW + maxCol * HGAP;
-    const H = PAD * 2 + maxRows * CH - VGAP;
-    const cx = (id) => PAD + rowIndex.get(id).c * (BW + HGAP);
-    const cy = (id) => PAD + rowIndex.get(id).i * CH;
+    const level = new Map();
+    ids.forEach((id) => level.set(id, 0));
+    const seen = new Set(roots);
+    const q = [...roots];
+    while (q.length) {
+      const u = q.shift();
+      for (const v of children.get(u)) {
+        if (!seen.has(v)) { seen.add(v); level.set(v, (level.get(u) || 0) + 1); q.push(v); }
+      }
+    }
+
+    const post = [];
+    const stack = [...roots];
+    while (stack.length) { const u = stack.pop(); post.push(u); children.get(u).forEach((v) => stack.push(v)); }
+    const leafSpan = new Map();
+    let nextLeaf = 0;
+    for (const u of [...post].reverse()) {
+      const ch = children.get(u);
+      if (!ch.length) { leafSpan.set(u, { l: nextLeaf, r: nextLeaf }); nextLeaf += 1; }
+      else {
+        const ls = ch.map((c) => leafSpan.get(c));
+        leafSpan.set(u, { l: Math.min(...ls.map((x) => x.l)), r: Math.max(...ls.map((x) => x.r)) });
+      }
+    }
+
+    const slotW = BW + HSPACE;
+    const xc = (id) => PAD + ((leafSpan.get(id).l + leafSpan.get(id).r) / 2) * slotW + BW / 2;
+    const bx = (id) => xc(id) - BW / 2;
+    const by = (id) => PAD + (level.get(id) || 0) * (BH + VGAP);
+
+    const maxLevel = Math.max(0, ...ids.map((id) => level.get(id) || 0));
+    const W = Math.max(BW + PAD * 2, PAD * 2 + nextLeaf * slotW - HSPACE);
+    const H = PAD * 2 + (maxLevel + 1) * BH + maxLevel * VGAP;
 
     const markerId = 'arr' + Math.random().toString(36).slice(2, 8);
     let s = '<svg xmlns="http://www.w3.org/2000/svg" width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" font-family="Cairo, sans-serif" direction="rtl">';
     s += '<defs><marker id="' + markerId + '" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#94a3b8"/></marker></defs>';
 
-    const spanOf = (e) => colOf(e.to) - colOf(e.from);
-    const laneCount = {};
-    for (const e of data.edges) {
-      const sp = spanOf(e);
-      if (sp <= 0) continue;
-      const k = colOf(e.from);
-      laneCount[k] = (laneCount[k] || 0) + 1;
-    }
-    const laneIdx = {};
-    for (const e of data.edges) {
-      const sp = spanOf(e);
-      if (sp <= 0) continue;
-      const k = colOf(e.from);
-      const li = (laneIdx[k] = (laneIdx[k] || 0) + 1);
-      const offset = (li - (laneCount[k] + 1) / 2) * 10;
-      const x1 = cx(e.from) + BW;
-      const y1 = cy(e.from) + BH / 2;
-      const x2 = cx(e.to);
-      const y2 = cy(e.to) + BH / 2;
-      const xm = (x1 + x2) / 2;
-      const xl = xm + offset;
-      const d = 'M' + x1 + ' ' + y1 + ' H' + xl + ' V' + y2 + ' H' + x2;
+    const labelOf = new Map();
+    data.edges.forEach((e) => labelOf.set(e.from + '|' + e.to, e.label || ''));
+
+    for (const v of ids) {
+      const u = parent.get(v);
+      if (!u) continue;
+      const x1 = xc(u);
+      const y1 = by(u) + BH;
+      const x2 = xc(v);
+      const y2 = by(v);
+      const my = (y1 + y2) / 2;
+      const d = 'M' + x1 + ' ' + y1 + ' V' + my + ' H' + x2 + ' V' + y2;
       s += '<path d="' + d + '" fill="none" stroke="#94a3b8" stroke-width="1.6" marker-end="url(#' + markerId + ')" />';
+      const lab = labelOf.get(u + '|' + v);
+      if (lab) {
+        s += '<text direction="rtl" x="' + (x2 + 8) + '" y="' + (my - 4) + '" font-size="11" fill="#64748b">' + esc(String(lab).slice(0, 18)) + '</text>';
+      }
+    }
+
+    for (const e of extraEdges) {
+      if (!idSet.has(e.from) || !idSet.has(e.to) || e.from === e.to) continue;
+      const sx = xc(e.from);
+      const sy = by(e.from) + BH;
+      const tx = xc(e.to);
+      const ty = by(e.to);
+      const my = (sy + ty) / 2;
+      const d = 'M' + sx + ' ' + sy + ' V' + my + ' H' + tx + ' V' + ty;
+      s += '<path d="' + d + '" fill="none" stroke="#cbd5e1" stroke-width="1.4" stroke-dasharray="5 5" marker-end="url(#' + markerId + ')" opacity="0.85" />';
       if (e.label) {
-        const label = esc(String(e.label).slice(0, 18));
-        const lx = sp === 1 ? Math.min(x2 - 4, xl + 6) : xl + 6;
-        s += '<text x="' + lx + '" y="' + (y2 - 6) + '" font-size="11" fill="#64748b">' + label + '</text>';
+        s += '<text direction="rtl" x="' + (tx + 8) + '" y="' + (my - 4) + '" font-size="11" fill="#94a3b8">' + esc(String(e.label).slice(0, 18)) + '</text>';
       }
     }
 
     for (const n of data.nodes) {
       const color = KIND_COLOR[n.kind] || KIND_COLOR.process;
-      const x = cx(n.id);
-      const y = cy(n.id);
+      const x = bx(n.id);
+      const y = by(n.id);
       const lines = wrapText(n.text, 18);
       if (n.kind === 'decision') {
         const rw = BW / 2 + 18;
