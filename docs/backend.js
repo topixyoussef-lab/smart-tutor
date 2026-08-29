@@ -567,12 +567,15 @@ const DIAGRAM_SCHEMA_EXPLANATION = `{
 function diagramMessages({ bookTitle, chapterTitle, chapterText, lang }) {
   const user =
     lang === 'ar'
-      ? `أنشئ "شرحاً مرئياً مخططاً (Flowchart)" يلخّص أهم مفاهيم الفصل وترابطها وتسلسل تعلمه، ثم أرجِع JSON حصراً بالقالب التالي بدون أي كلام أو علامات آخر:
+      ? `أنشئ "شرحاً مرئياً مخططاً (Flowchart)" يلخّص أهم مفاهيم الفصل وتسلسل تعلمها وترابطها، ثم أرجِع JSON حصراً بالقالب التالي بدون أي كلام أو علامات آخر:
 ${DIAGRAM_SCHEMA_EXPLANATION}
 الشروط:
 - kind "start" لعقدة البداية، و"end" للنهاية، و"decision" لتفرّع أو سؤال، و"process" لكل البقية.
-- اجعل النصوص قصيرة جداً (أقل من 6 كلمات) بأسلوب واضح مبسّط، واترك label فارغاً إن لم يكن ضرورياً.
-- عدد العقد بين 8 و 22، واربطها بترتيب منطقي يوضّح تسلسل الموضوع (المفهوم ← الأمثلة ← القوانين/الخطوات ← التطبيق).
+- اجعل النصوص قصيرة جداً (أقل من 6 كلمات) بأسلوب واضح مبسّط.
+- عدد العقد بين 10 و 28.
+- اربط المفاهيم بخطوط كثيرة تبين علاقاتها الحقيقية: ارسم سلسلة التسلسل الرئيسية (المفهوم ← الأمثلة ← القوانين/الخطوات ← التطبيق) ثم أضف علاقات جانبية بين أي مفهومين مرتبطين غير متتاليين، مثل "يعتمد على" أو "مثال على" أو "يؤدي إلى" أو "يقارن بـ" (ضع label لها)، ولا تكتفِ بخط واحد بين كل عقدتين.
+- اجعل label أسهم التفرّع من عقدة decision واضحة مثل "نعم" / "لا".
+- لا تربط بشكل عكسي ولا تضع حلقات ذاتية.
 - كلمات المخطط بالعربية ما عدا المصطلحات الأجنبية الشائعة.
 
 **الكتاب:** ${bookTitle}
@@ -583,9 +586,12 @@ ${chapterText}`
 ${DIAGRAM_SCHEMA_EXPLANATION}
 Rules:
 - kind "start" for the starting node, "end" for the end node, "decision" for a branch/question, "process" for everything else.
-- Keep every node text very short (under 6 words), and leave "label" empty unless truly needed.
-- Use 8 to 22 nodes, chained in a logical order (concept → examples → formula/steps → application).
-- Diagram words in English (keep well-known terms as-is).
+- Keep every node text very short (under 6 words).
+- Use 10 to 28 nodes.
+- Connect concepts with MANY of arrows showing their real relationships: draw the main learning chain (concept → examples → formula/steps → application), then ADD extra cross-links between any two related non-consecutive concepts (label them, e.g. "depends on", "example of", "leads to", "compares with"). Do not settle for just one edge between each pair.
+- Make the arrows from every "decision" node clearly labeled (e.g. "Yes" / "No").
+- No backward edges and no self-loops.
+- Diagram words in English.
 
 **Book:** ${bookTitle}
 **Chapter:** ${chapterTitle}

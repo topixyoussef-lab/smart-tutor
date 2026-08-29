@@ -333,7 +333,7 @@
     const BW = 235;
     const BH = 58;
     const HGAP = 96;
-    const VGAP = 34;
+    const VGAP = 40;
     const CH = VGAP + BH;
     const PAD = 24;
 
@@ -357,17 +357,33 @@
     let s = '<svg xmlns="http://www.w3.org/2000/svg" width="' + W + '" height="' + H + '" viewBox="0 0 ' + W + ' ' + H + '" font-family="Cairo, sans-serif" direction="rtl">';
     s += '<defs><marker id="' + markerId + '" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#94a3b8"/></marker></defs>';
 
+    const spanOf = (e) => colOf(e.to) - colOf(e.from);
+    const laneCount = {};
     for (const e of data.edges) {
+      const sp = spanOf(e);
+      if (sp <= 0) continue;
+      const k = colOf(e.from);
+      laneCount[k] = (laneCount[k] || 0) + 1;
+    }
+    const laneIdx = {};
+    for (const e of data.edges) {
+      const sp = spanOf(e);
+      if (sp <= 0) continue;
+      const k = colOf(e.from);
+      const li = (laneIdx[k] = (laneIdx[k] || 0) + 1);
+      const offset = (li - (laneCount[k] + 1) / 2) * 10;
       const x1 = cx(e.from) + BW;
       const y1 = cy(e.from) + BH / 2;
       const x2 = cx(e.to);
       const y2 = cy(e.to) + BH / 2;
-      const mx = (x1 + x2) / 2;
-      const d = 'M' + x1 + ' ' + y1 + ' L' + mx + ' ' + y1 + ' L' + mx + ' ' + y2 + ' L' + x2 + ' ' + y2;
+      const xm = (x1 + x2) / 2;
+      const xl = xm + offset;
+      const d = 'M' + x1 + ' ' + y1 + ' H' + xl + ' V' + y2 + ' H' + x2;
       s += '<path d="' + d + '" fill="none" stroke="#94a3b8" stroke-width="1.6" marker-end="url(#' + markerId + ')" />';
       if (e.label) {
-        const lx = mx + 6;
-        s += '<text x="' + lx + '" y="' + ((y1 + y2) / 2 - 4) + '" font-size="11" fill="#64748b">' + esc(e.label) + '</text>';
+        const label = esc(String(e.label).slice(0, 18));
+        const lx = sp === 1 ? Math.min(x2 - 4, xl + 6) : xl + 6;
+        s += '<text x="' + lx + '" y="' + (y2 - 6) + '" font-size="11" fill="#64748b">' + label + '</text>';
       }
     }
 
