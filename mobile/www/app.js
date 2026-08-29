@@ -12,6 +12,7 @@ const LABELS = {
     btnExplain: 'اشرح لي', btnSummary: 'ملخص', btnStop: 'إيقاف', btnSend: 'إرسال', btnGenerate: 'توليد الامتحان', btnSave: 'حفظ',
     askFollowUp: 'اسأل عن هذا الفصل', newExam: 'امتحان جديد', myExams: 'الامتحانات',
     pdfPaneTitle: '📄 صفحات الكتاب',
+    pdfShow: '📄 صفحات الكتاب', pdfHide: 'إخفاء صفحات الكتاب', pdfRangeHint: 'صفحات الفصل:',
     lvEasy: 'سهل', lvMedium: 'متوسط', lvHard: 'صعب',
     typeConcept: 'مفهومي', typeProblem: 'مسائل',
     topicsSummary: 'نقاط الضعف الأكثر تكراراً ', history: 'تاريخ الاختبارات',
@@ -43,6 +44,7 @@ const LABELS = {
     btnExplain: 'Explain', btnSummary: 'Summary', btnStop: 'Stop', btnSend: 'Send', btnGenerate: 'Generate exam', btnSave: 'Save',
     askFollowUp: 'Ask about this chapter', newExam: 'New exam', myExams: 'My exams',
     pdfPaneTitle: '📄 Book pages',
+    pdfShow: '📄 Book pages', pdfHide: 'Hide book pages', pdfRangeHint: 'Chapter pages:',
     lvEasy: 'Easy', lvMedium: 'Medium', lvHard: 'Hard',
     typeConcept: 'Conceptual', typeProblem: 'Problems',
     topicsSummary: 'Most frequent weak topics', history: 'Test history',
@@ -419,6 +421,7 @@ function renderLearn() {
   $('#explainBox').classList.add('hidden');
   $('#chatBox').innerHTML = '';
   if (window.PdfViewer) window.PdfViewer.clear();
+  updatePdfToggleUI();
 }
 
 function chapterPageRange() {
@@ -431,9 +434,23 @@ function chapterPageRange() {
   return { start: 1, end: b.pageCount || 1 };
 }
 
+function updatePdfToggleUI() {
+  const t = $('#pdfToggleText');
+  if (!t) return;
+  const pane = $('#pdfPane');
+  const visible = pane && !pane.classList.contains('hidden');
+  t.textContent = visible ? L().pdfHide : L().pdfShow;
+  const pr = chapterPageRange();
+  const hint = $('#pdfToggleHint');
+  if (hint) hint.textContent = pr ? L().pdfRangeHint + ' ' + pr.start + '–' + pr.end : '';
+}
+
 function showChapterPdf() {
   const pr = chapterPageRange();
-  if (pr && window.PdfViewer) window.PdfViewer.show(state.learn.bookId, pr.start, pr.end);
+  if (pr && window.PdfViewer) {
+    window.PdfViewer.show(state.learn.bookId, pr.start, pr.end);
+    updatePdfToggleUI();
+  }
 }
 
 function setStatusChip(text, className = '') {
@@ -453,12 +470,14 @@ function bindLearn() {
   $('#learnChapter').addEventListener('change', (e) => {
     state.learn.chapterId = e.target.value;
     if (window.PdfViewer) window.PdfViewer.clear();
+    updatePdfToggleUI();
   });
 
   $('#pdfToggleBtn').addEventListener('click', () => {
     const pane = $('#pdfPane');
     if (pane && !pane.classList.contains('hidden')) {
       if (window.PdfViewer) window.PdfViewer.clear();
+      updatePdfToggleUI();
     } else {
       if (!state.learn.bookId || !state.learn.chapterId) { toast(L().chooseChapter); return; }
       showChapterPdf();
@@ -523,6 +542,7 @@ function bindLearn() {
 
   $('#chatSend').addEventListener('click', sendChat);
   $('#chatInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') sendChat(); });
+  window.addEventListener('pdf-pane', () => { if (state.currentTab === 'learn') updatePdfToggleUI(); });
 }
 
 async function sendChat() {

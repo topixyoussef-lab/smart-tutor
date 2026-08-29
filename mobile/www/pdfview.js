@@ -125,9 +125,10 @@
     const smart = await waitSmart();
     const book = await smart.getBook(bookId);
     const file = await smart.getOriginalFile(bookId);
-    if (!file) { setPaneVisible(true); msg('الملف الأصلي غير متوفر لهذا الكتاب', true); return; }
+    if (!file) { setPaneVisible(true); msg('الملف الأصلي غير متوفر لهذا الكتاب', true); window.dispatchEvent(new Event('pdf-pane')); return; }
     msg('جاري تحميل الصفحات...');
     setPaneVisible(true);
+    window.dispatchEvent(new Event('pdf-pane'));
 
     if (st.doc) { try { st.doc.destroy(); } catch { /* noop */ } }
     st.doc = null;
@@ -189,6 +190,7 @@
     if (observer) observer.disconnect();
     setPaneVisible(false);
     msg('');
+    window.dispatchEvent(new Event('pdf-pane'));
   }
 
   function nav(dir) {
