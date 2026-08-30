@@ -279,3 +279,43 @@ body.fs-open #pdfBody,
 body.fs-open #diagramBody {
   max-height: calc(100vh - 9.5rem) !important;
 }
+
+/* ---------- dark mode ---------- */
+body.dark { background: #0f172a !important; color: #e2e8f0 !important; }
+body.dark header { background: #1e293b !important; }
+body.dark .card { background: #1e293b !important; border-color: #334155 !important; box-shadow: 0 1px 3px rgba(0, 0, 0, .4) !important; }
+body.dark .card-title { color: #c7d2fe !important; }
+body.dark .input { background: #0f172a !important; border-color: #475569 !important; color: #e2e8f0 !important; }
+body.dark .input:focus { border-color: var(--brand) !important; }
+body.dark .btn-secondary { background: #1d2a44 !important; border-color: #475569 !important; color: #c7d2fe !important; }
+body.dark .btn-secondary:hover { background: #273552 !important; }
+body.dark .btn-ghost { color: #94a3b8 !important; }
+body.dark .btn-ghost:hover { background: rgba(148, 163, 184, .12) !important; }
+body.dark .tab-btn { color: #b6c2d6 !important; }
+body.dark .field-label { color: #94a3b8 !important; }
+body.dark .md-body { color: #e2e8f0 !important; }
+body.dark .md-body pre,
+body.dark .md-body code { background: #0f172a !important; color: #e2e8f0 !important; border-color: #334155 !important; }
+body.dark #pdfBody { background: #0f172a !important; }
+body.dark .diagram-draw { background: #1e293b !important; border-color: #334155 !important; }
+body.dark #darkIconMoon { display: none !important; }
+body.dark #darkIconSun { display: block !important; }
+body.dark .bg-white,
+body.dark .bg-slate-50 { background: #1e293b !important; }
+body.dark .bg-slate-100,
+body.dark .bg-slate-200 { background: #2b3850 !important; }
+body.dark .bg-brand-50 { background: #182338 !important; }
+body.dark .text-slate-700,
+body.dark .text-slate-800,
+body.dark .text-slate-900,
+body.dark .text-brand-900 { color: #e2e8f0 !important; }
+body.dark .text-slate-500,
+body.dark .text-slate-400,
+body.dark .text-slate-300 { color: #94a3b8 !important; }
+body.dark .text-brand-600,
+body.dark .text-brand-700 { color: #a5b4fc !important; }
+body.dark .border-slate-100,
+body.dark .border-slate-200 { border-color: #334155 !important; }
+body.dark .border-brand-300 { border-color: #6366f1 !important; }
+body.dark .chat-area,
+body.dark .chat-area input { background: #0f172a !important; border-color: #334155 !important; color: #e2e8f0 !important; }

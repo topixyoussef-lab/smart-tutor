@@ -543,6 +543,44 @@
     setPaneVisible(false);
   }
 
+  function exportPng() {
+    const svg = document.querySelector('#diagramCanvas svg');
+    if (!svg) return;
+    const w = parseFloat(svg.getAttribute('width')) || svg.viewBox.baseVal.width || 1200;
+    const h = parseFloat(svg.getAttribute('height')) || svg.viewBox.baseVal.height || 800;
+    const img = new Image();
+    const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(new XMLSerializer().serializeToString(svg));
+    img.onload = () => {
+      const scale = 2;
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(w * scale);
+      canvas.height = Math.round(h * scale);
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const a = document.createElement('a');
+      a.download = (st.chapterId || 'diagram') + '.png';
+      a.href = canvas.toDataURL('image/png');
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+    };
+    img.src = url;
+  }
+
+  function printDiagram() {
+    const svg = document.querySelector('#diagramCanvas svg');
+    if (!svg) return;
+    const xml = new XMLSerializer().serializeToString(svg.cloneNode(true));
+    const win = window.open('', '_blank');
+    if (!win) return;
+    win.document.write('<!doctype html><html dir="rtl"><head><meta charset="utf-8"><title>Flowchart</title><style>body{margin:0;padding:16px}@media print{body{padding:0}}svg{display:block;max-width:100%;height:auto;margin:0 auto}</style></head><body>' + xml + '</body></html>');
+    win.document.close();
+    win.focus();
+    setTimeout(() => { try { win.print(); } catch (e) { /* blocked */ } }, 500);
+  }
+
   function init() {
     const redo = $('diagramRedo');
     if (redo) {
@@ -555,6 +593,8 @@
     const zi = $('diagramZoomInBtn'); if (zi) zi.addEventListener('click', () => zoom(1.2));
     const zo = $('diagramZoomOutBtn'); if (zo) zo.addEventListener('click', () => zoom(0.85));
     const hide = $('diagramHideBtn'); if (hide) hide.addEventListener('click', clear);
+    const png = $('diagramPngBtn'); if (png) png.addEventListener('click', () => { if (st.layout) exportPng(); });
+    const prt = $('diagramPrintBtn'); if (prt) prt.addEventListener('click', () => { if (st.layout) printDiagram(); });
     window.addEventListener('resize', () => { if (st.layout) setTimeout(fit, 60); });
     const tPdf = $('paneTabPdf'); if (tPdf) tPdf.addEventListener('click', () => {
       showTab('pdf');
@@ -576,5 +616,7 @@
     setTab: showTab,
     isPaneVisible,
     getLayout: () => st.layout,
+    exportPng,
+    print: printDiagram,
   };
 })();

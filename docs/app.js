@@ -10,6 +10,9 @@ const LABELS = {
     lblBook: 'الكتاب', lblChapter: 'الفصل', lblExplainStyle: 'أسلوب الشرح', lblChapters: 'الفصول المشمولة', lblLevel: 'المستوى', lblTypes: 'أنواع الأسئلة', lblCount: 'عدد الأسئلة', lblExamLang: 'لغة الامتحان', lblProvider: 'مزوّد الذكاء الاصطناعي', lblModel: 'الموديل', lblKey: 'مفتاح API', lblUILang: 'لغة الواجهة',
     styleDetailed: 'شرح مفصّل', styleSimple: 'مبسّط', styleExamFocus: 'مركّز للامتحانات',
     fsEnter: 'ملء الشاشة', fsExit: 'الخروج من ملء الشاشة',
+    ttsListen: 'استماع للشرح', ttsStop: 'إيقاف', ttsNoText: 'لا يوجد نص للاستماع', ttsUnsupported: 'المتصفح لا يدعم القراءة الصوتية',
+    darkOn: 'الوضع الليلي', darkOff: 'الوضع النهاري',
+    exportPng: 'حفظ الرسم صورة', printDiagram: 'طباعة الرسم',
     btnExplain: 'اشرح لي', btnDiagram: '🌐 الرسم والمخططات', btnSummary: 'ملخص', btnStop: 'إيقاف', btnSend: 'إرسال', btnGenerate: 'توليد الامتحان', btnSave: 'حفظ',
     askFollowUp: 'اسأل عن هذا الفصل', newExam: 'امتحان جديد', myExams: 'الامتحانات',
     pdfPaneTitle: '📄 صفحات الكتاب',
@@ -45,6 +48,9 @@ const LABELS = {
     lblBook: 'Book', lblChapter: 'Chapter', lblExplainStyle: 'Explanation style', lblChapters: 'Chapters included', lblLevel: 'Level', lblTypes: 'Question types', lblCount: 'Number of questions', lblExamLang: 'Exam language', lblProvider: 'AI provider', lblModel: 'Model', lblKey: 'API key', lblUILang: 'UI language',
     styleDetailed: 'Detailed', styleSimple: 'Simplified', styleExamFocus: 'Exam-focused',
     fsEnter: 'Fullscreen', fsExit: 'Exit fullscreen',
+    ttsListen: 'Listen to explanation', ttsStop: 'Stop', ttsNoText: 'Nothing to read', ttsUnsupported: 'Your browser does not support text-to-speech',
+    darkOn: 'Dark mode', darkOff: 'Light mode',
+    exportPng: 'Save diagram as image', printDiagram: 'Print diagram',
     btnExplain: 'Explain', btnDiagram: '🌐 Visual Diagram', btnSummary: 'Summary', btnStop: 'Stop', btnSend: 'Send', btnGenerate: 'Generate exam', btnSave: 'Save',
     askFollowUp: 'Ask about this chapter', newExam: 'New exam', myExams: 'My exams',
     pdfPaneTitle: '📄 Book pages',
@@ -104,6 +110,7 @@ function setLang(lang) {
 
 function applyI18n() {
   const l = L();
+  setCommonTitles();
   document.querySelectorAll('[data-i18n]').forEach((el) => {
     const key = el.dataset.i18n;
     el.textContent = l[key] || el.textContent;
@@ -494,6 +501,15 @@ function setFullscreenTarget(el) {
   setTimeout(() => window.dispatchEvent(new Event('resize')), 60);
 }
 
+function setCommonTitles() {
+  const t = {
+    paneFsBtn: L().fsEnter, explainFsBtn: L().fsEnter,
+    ttsBtn: L().ttsListen, darkToggle: document.body.classList.contains('dark') ? L().darkOff : L().darkOn,
+    diagramPngBtn: L().exportPng, diagramPrintBtn: L().printDiagram,
+  };
+  Object.keys(t).forEach((id) => { const el = document.getElementById(id); if (el) el.title = t[id]; });
+}
+
 function bindFullscreen() {
   fsButtons().forEach((b) => b.addEventListener('click', () => {
     const el = document.getElementById(b.dataset.fsTarget);
@@ -503,6 +519,83 @@ function bindFullscreen() {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && fsState.el) setFullscreenTarget(fsState.el);
   });
+}
+
+/* ================= TTS (text to speech) ================= */
+const tts = { active: false, btn: null, voices: [] };
+
+function stopTts() {
+  if (!('speechSynthesis' in window)) return;
+  window.speechSynthesis.cancel();
+  if (tts.active) { tts.active = false; updateTtsBtn(); }
+}
+
+function updateTtsBtn() {
+  if (!tts.btn) return;
+  tts.btn.textContent = tts.active ? '⏹' : '🔊';
+  tts.btn.title = tts.active ? L().ttsStop : L().ttsListen;
+}
+
+function speakChunks(text) {
+  const synth = window.speechSynthesis;
+  const parts = (text.match(/[^.!؟؟؛\n]+[.!؟؟؛\n]*/g) || []).map((s) => s.trim()).filter(Boolean);
+  if (!parts.length) { tts.active = false; updateTtsBtn(); return; }
+  synth.cancel();
+  let i = 0;
+  const next = () => {
+    if (!tts.active || i >= parts.length) {
+      if (i >= parts.length) { tts.active = false; updateTtsBtn(); }
+      return;
+    }
+    const u = new SpeechSynthesisUtterance(parts[i++]);
+    u.lang = 'ar-SA';
+    if (tts.voices.length) {
+      const v = tts.voices.find((x) => x.lang && x.lang.split('-')[0].toLowerCase() === 'ar') || tts.voices.find((x) => x.lang && x.lang.toLowerCase().indexOf('ar') === 0);
+      if (v) u.voice = v;
+    }
+    u.rate = 1;
+    u.pitch = 1;
+    u.onend = () => setTimeout(next, 30);
+    u.onerror = () => { tts.active = false; updateTtsBtn(); };
+    synth.speak(u);
+  };
+  setTimeout(next, 80);
+}
+
+function toggleTts() {
+  if (!('speechSynthesis' in window)) { toast(L().ttsUnsupported); return; }
+  if (tts.active) { stopTts(); return; }
+  const content = $('#explainContent');
+  const text = (content && (content.innerText || content.textContent || '').trim()) || '';
+  if (!text) { toast(L().ttsNoText); return; }
+  tts.active = true;
+  updateTtsBtn();
+  speakChunks(text);
+}
+
+function initTts() {
+  tts.btn = $('#ttsBtn');
+  if (!('speechSynthesis' in window)) { if (tts.btn) tts.btn.classList.add('hidden'); return; }
+  if (!tts.btn) return;
+  const load = () => { tts.voices = window.speechSynthesis.getVoices(); };
+  load();
+  if ('onvoiceschanged' in window.speechSynthesis) window.speechSynthesis.onvoiceschanged = load;
+  tts.btn.addEventListener('click', toggleTts);
+  window.addEventListener('beforeunload', () => { if (tts.active) window.speechSynthesis.cancel(); });
+}
+
+/* ================= DARK MODE ================= */
+function applyDark(dark) {
+  const d = dark === undefined ? localStorage.getItem('darkMode') === '1' : dark;
+  document.body.classList.toggle('dark', d);
+  localStorage.setItem('darkMode', d ? '1' : '0');
+  const btn = $('#darkToggle');
+  if (btn) btn.title = d ? L().darkOff : L().darkOn;
+}
+
+function bindDark() {
+  const btn = $('#darkToggle');
+  if (btn) btn.addEventListener('click', () => applyDark(!document.body.classList.contains('dark')));
 }
 
 function bindLearn() {
@@ -537,6 +630,7 @@ function bindLearn() {
   $('#explainBtn').addEventListener('click', async () => {
     if (!state.learn.bookId || !state.learn.chapterId) { toast(L().chooseChapter); return; }
     if (state.explain.controller) { state.explain.controller.abort(); }
+    stopTts();
     showChapterPdf();
     const controller = new AbortController();
     state.explain.controller = controller;
@@ -1039,6 +1133,9 @@ async function init() {
   bindUpload();
   bindLearn();
   bindFullscreen();
+  initTts();
+  bindDark();
+  applyDark();
   bindExamForm();
   bindSettings();
   switchTab('library');
