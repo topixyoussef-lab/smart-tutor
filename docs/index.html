@@ -48,6 +48,7 @@
     <button class="tab-btn" data-tab="learn"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253"/></svg><span data-i18n="tabLearn"></span></button>
     <button class="tab-btn" data-tab="exams"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2"/><path d="M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v0a2 2 0 0 1-2 2h-2a2 2 0 0 1-2-2z"/><path d="M9 12l2 2 4-4"/></svg><span data-i18n="tabExams"></span></button>
     <button class="tab-btn" data-tab="results"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="M7 13l3-3 4 4 5-6"/><path d="M7 13v5h5"/></svg><span data-i18n="tabResults"></span></button>
+    <button class="tab-btn" data-tab="timetable"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="M9 15l2 2 4-4"/></svg><span data-i18n="tabTimetable"></span></button>
     <button class="tab-btn" data-tab="settings"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg><span data-i18n="tabSettings"></span></button>
   </nav>
 </header>
@@ -259,6 +260,73 @@
           <span id="examListCount" class="text-sm text-slate-500"></span>
         </div>
         <div id="examsList" class="space-y-3"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ TIMETABLE ============ -->
+  <section id="view-timetable" class="view hidden">
+    <div class="grid lg:grid-cols-3 gap-6">
+      <div>
+        <div class="card p-5">
+          <h2 class="card-title" data-i18n="ttSetup"></h2>
+          <div class="mt-4 space-y-4">
+            <div>
+              <label class="field-label" data-i18n="ttChooseBooks"></label>
+              <div id="ttBooksList" class="space-y-1.5 mt-1 max-h-48 overflow-y-auto rounded-xl border border-slate-200 p-3"></div>
+              <p id="ttBooksHint" class="text-xs text-amber-600 font-bold mt-1 hidden"></p>
+            </div>
+            <div>
+              <label class="field-label" data-i18n="ttStartDate"></label>
+              <input id="ttStartDate" type="date" class="input w-full" />
+            </div>
+            <div>
+              <label class="field-label" data-i18n="ttDays"></label>
+              <div id="ttWeekdays" class="grid grid-cols-4 gap-1.5 mt-1.5"></div>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="field-label" data-i18n="ttSessions"></label>
+                <div class="flex items-center gap-1.5 mt-1">
+                  <button id="ttSessMinus" class="btn-ghost text-sm px-2.5 py-1 rounded-lg">−</button>
+                  <input id="ttSessions" type="number" min="1" max="6" value="1" class="input text-center" />
+                  <button id="ttSessPlus" class="btn-ghost text-sm px-2.5 py-1 rounded-lg">+</button>
+                </div>
+              </div>
+              <div>
+                <label class="field-label" data-i18n="ttMinutes"></label>
+                <select id="ttMinutes" class="input w-full">
+                  <option value="30">30</option>
+                  <option value="45">45</option>
+                  <option value="60" selected>60</option>
+                  <option value="90">90</option>
+                  <option value="120">120</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label class="field-label" data-i18n="ttSubjectsDay"></label>
+              <select id="ttSubjectsDay" class="input w-full">
+                <option value="1" selected data-i18n-opt="ttOne"></option>
+                <option value="2" data-i18n-opt="ttTwo"></option>
+                <option value="3" data-i18n-opt="ttThree"></option>
+              </select>
+            </div>
+            <button id="ttGenerateBtn" class="btn-primary w-full" data-i18n="ttGenerate"></button>
+            <button id="ttResetBtn" class="btn-ghost w-full text-sm" data-i18n="ttReset"></button>
+            <div id="ttStatus" class="text-sm font-bold hidden"></div>
+          </div>
+        </div>
+      </div>
+      <div class="lg:col-span-2">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-lg font-extrabold text-brand-900" data-i18n="ttTitle"></h2>
+          <div class="flex gap-2">
+            <button id="ttPrintBtn" class="btn-secondary text-xs px-3 py-2 rounded-lg hidden" data-i18n="ttPrint"></button>
+          </div>
+        </div>
+        <div id="ttStats" class="card p-5 mb-4 hidden"></div>
+        <div id="ttResult" class="space-y-4"></div>
       </div>
     </div>
   </section>

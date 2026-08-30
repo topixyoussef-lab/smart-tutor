@@ -18,6 +18,12 @@ const LABELS = {
     quizThinking: 'جاري توليد سؤال...', quizTitle: 'اختبار سريع ⚡', quizAgain: 'سؤال آخر', quizCorrect: 'إجابة صحيحة 🎉', quizWrong: 'إجابة خاطئة', quizScore: 'نتيجتك الآن: {a}/{b}',
     planTitle: 'خطة مراجعة متباعدة', planThinking: 'جاري إعداد الخطة...', planFail: 'تعذّر إعداد الخطة، جرّب مجدداً', planEmpty: 'لا توجد نتائج امتحانات بعد، حلّ اختباراً أولاً', planDay: 'اليوم',
     explainMdSave: 'تم تنزيل ملف الشرح', explainNoText: 'لا يوجد شرح بعد — اضغط "اشرح" أولاً',
+    tabTimetable: 'الجدول', ttSetup: 'إعداد الجدول الزمني', ttChooseBooks: 'اختر كتب المناهج', ttStartDate: 'تاريخ البداية', ttDays: 'أيام الدراسة',
+    ttSessions: 'حصص يومياً', ttMinutes: 'دقيقة/حصة', ttSubjectsDay: 'مواد في اليوم', ttOne: 'مادة واحدة', ttTwo: 'مادتان', ttThree: '3 مواد',
+    ttGenerate: '🗓 إنشاء الجدول', ttReset: 'مسح الجدول', ttTitle: 'خطتك الدراسية اليومية', ttPrint: '🖨 طباعة / PDF',
+    ttBooksHint: 'لا توجد كتب بعد — ارفع كتب المناهج من تبويب الكتب أولاً',
+    ttStatsBooks: 'كتب', ttStatsUnits: 'درساً', ttStatsDays: 'أيام دراسية', ttStatsHours: 'ساعة/أسبوع',
+    ttDayAll: 'كل الأيام',
     ttsListen: 'استماع للشرح', ttsStop: 'إيقاف', ttsNoText: 'لا يوجد نص للاستماع', ttsUnsupported: 'المتصفح لا يدعم القراءة الصوتية',
     darkOn: 'الوضع الليلي', darkOff: 'الوضع النهاري',
     exportPng: 'حفظ الرسم صورة', printDiagram: 'طباعة الرسم',
@@ -64,6 +70,12 @@ const LABELS = {
     quizThinking: 'Generating question...', quizTitle: 'Quick quiz ⚡', quizAgain: 'Another question', quizCorrect: 'Correct! 🎉', quizWrong: 'Wrong', quizScore: 'Current score: {a}/{b}',
     planTitle: 'Spaced Repetition Plan', planThinking: 'Building your plan...', planFail: 'Could not build the plan, try again', planEmpty: 'No exam results yet — take an exam first', planDay: 'Day',
     explainMdSave: 'Explanation file downloaded', explainNoText: 'No explanation yet — press "Explain" first',
+    tabTimetable: 'Schedule', ttSetup: 'Build your timetable', ttChooseBooks: 'Choose curriculum books', ttStartDate: 'Start date', ttDays: 'Study days',
+    ttSessions: 'Sessions per day', ttMinutes: 'min / session', ttSubjectsDay: 'Subjects per day', ttOne: 'One subject', ttTwo: 'Two subjects', ttThree: '3 subjects',
+    ttGenerate: '🗓 Generate schedule', ttReset: 'Clear schedule', ttTitle: 'Your daily study plan', ttPrint: '🖨 Print / PDF',
+    ttBooksHint: 'No books yet — upload your curriculum books first',
+    ttStatsBooks: 'books', ttStatsUnits: 'lessons', ttStatsDays: 'study days', ttStatsHours: 'hrs/week',
+    ttDayAll: 'Every day',
     ttsListen: 'Listen to explanation', ttsStop: 'Stop', ttsNoText: 'Nothing to read', ttsUnsupported: 'Your browser does not support text-to-speech',
     darkOn: 'Dark mode', darkOff: 'Light mode',
     exportPng: 'Save diagram as image', printDiagram: 'Print diagram',
@@ -254,6 +266,7 @@ function switchTab(name) {
   if (name === 'learn') renderLearn();
   if (name === 'exams') renderExamsView();
   if (name === 'results') renderResultsView();
+  if (name === 'timetable') renderTimetable();
   if (name === 'settings') renderSettings();
   window.scrollTo({ top: 0 });
 }
@@ -780,6 +793,127 @@ function renderPlanCards(plan) {
         <ul class="space-y-1.5">${(d.tasks || []).map((t) => `<li class="text-sm text-slate-600 flex gap-2"><span class="text-brand-400">•</span><span>${esc(t)}</span></li>`).join('')}</ul>
       </div>`).join('')}`;
   $('#planClose').addEventListener('click', () => box.classList.add('hidden'));
+}
+
+/* ================= TIMETABLE ================= */
+const dayLabels = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+const dayLabelsEn = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+let ttSchedule = null;
+
+function ttBooksChecked() {
+  return [...document.querySelectorAll('#ttBooksList input[type="checkbox"]:checked')].map((x) => x.value);
+}
+
+function renderTimetable() {
+  const l = L();
+  const booksEl = $('#ttBooksList');
+  if (!booksEl) return;
+  if (!state.books.length) {
+    booksEl.innerHTML = '<p class="text-xs text-slate-400">' + esc(l.ttBooksHint) + '</p>';
+    $('#ttBooksHint').classList.remove('hidden');
+  } else {
+    $('#ttBooksHint').classList.add('hidden');
+    booksEl.innerHTML = state.books.map((b) => `
+      <label class="flex items-center gap-2 p-2 rounded-lg border border-slate-200 hover:bg-slate-50 cursor-pointer">
+        <input type="checkbox" value="${esc(b.id)}" class="accent-brand-500">
+        <span class="text-sm font-bold truncate">${esc(b.title)}</span>
+        <span class="text-[11px] text-slate-400 ml-auto">${b.chapters?.length || 0}</span>
+      </label>`).join('');
+  }
+  if (!$('#ttStartDate').value) {
+    const now = new Date();
+    $('#ttStartDate').value = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0') + '-' + String(now.getDate()).padStart(2, '0');
+  }
+  const days = state.lang === 'ar' ? dayLabels : dayLabelsEn;
+  $('#ttWeekdays').innerHTML = days.map((d, i) => `
+    <label class="flex items-center justify-center gap-1 py-1.5 rounded-lg border border-slate-200 cursor-pointer hover:bg-slate-50">
+      <input type="checkbox" value="${i}" checked class="accent-brand-500"> <span class="text-[11px] font-bold">${esc(d)}</span>
+    </label>`).join('');
+  if (ttSchedule) renderTimetableResult(ttSchedule, l);
+}
+
+function renderTimetableResult(data, l) {
+  if (!data) return;
+  ttSchedule = data;
+  const stats = data.stats || {};
+  $('#ttStats').classList.remove('hidden');
+  $('#ttStats').innerHTML = `
+    <div class="flex flex-wrap gap-3">
+      <span class="inline-flex items-center gap-1.5 text-xs font-bold text-brand-700 bg-brand-100 rounded-full px-3 py-1.5">📚 ${esc(stats.books || 0)} ${esc(l.ttStatsBooks)}</span>
+      <span class="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-700 bg-emerald-100 rounded-full px-3 py-1.5">📖 ${esc(stats.units || 0)} ${esc(l.ttStatsUnits)}</span>
+      <span class="inline-flex items-center gap-1.5 text-xs font-bold text-amber-700 bg-amber-100 rounded-full px-3 py-1.5">📅 ${esc(stats.days || 0)} ${esc(l.ttStatsDays)}</span>
+      <span class="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-700 bg-indigo-100 rounded-full px-3 py-1.5">⏱ ${esc(stats.hoursPerWeek || 0)} ${esc(l.ttStatsHours)}</span>
+    </div>`;
+  const dayN = state.lang === 'ar' ? dayLabels : dayLabelsEn;
+  $('#ttResult').innerHTML = (data.schedule || []).map((d) => `
+    <div class="card p-4">
+      <div class="flex items-center justify-between mb-2 flex-wrap gap-1">
+        <span class="text-sm font-extrabold text-brand-800">${esc(d.dayLabel)} · ${esc(String(d.date).split('-').reverse().join('/'))}</span>
+        <span class="flex gap-1 flex-wrap">${(d.sessions || []).map((s) => `<span class="inline-block bg-slate-100 text-slate-600 text-[11px] font-bold px-2.5 py-1 rounded-full">${esc(s.subject)} · ${esc(s.minutes)}د</span>`).join('')}</span>
+      </div>
+      <ul class="space-y-1.5">${(d.sessions || []).map((s) => `<li class="text-sm text-slate-700 flex gap-2"><span class="text-brand-400">▸</span><span class="font-bold">${esc(s.subject)}:</span> <span>${esc(s.text)} <span class="text-slate-400 text-xs">(${esc(s.minutes)}${esc(l.ttMinutes)})</span></span></li>`).join('')}</ul>
+    </div>`).join('');
+  $('#ttPrintBtn').classList.remove('hidden');
+}
+
+async function generateTimetable() {
+  const l = L();
+  const ids = ttBooksChecked();
+  if (!ids.length) { toast(L().ttBooksHint); return; }
+  const spinner = `<div class="flex items-center justify-center gap-2 text-sm text-slate-500 py-8"><div class="spinner" style="width:18px;height:18px;border-width:2px"></div>${esc(L().thinking)}</div>`;
+  $('#ttStatus').classList.remove('hidden');
+  $('#ttStatus').innerHTML = `<div class="flex items-center gap-2 text-sm text-slate-600"><div class="spinner" style="width:16px;height:16px;border-width:2px"></div>${esc(L().planThinking)}</div>`;
+  const weekdays = [...document.querySelectorAll('#ttWeekdays input:checked')].map((x) => Number(x.value));
+  try {
+    const body = {
+      bookIds: ids,
+      startDate: $('#ttStartDate').value,
+      weekdays,
+      sessionsPerDay: Number($('#ttSessions').value) || 1,
+      minutesPerSession: Number($('#ttMinutes').value) || 60,
+      subjectsPerDay: Number($('#ttSubjectsDay').value) || 1,
+      lang: state.lang,
+    };
+    const data = await apiPost('/api/timetable', body);
+    $('#ttStatus').classList.add('hidden');
+    renderTimetableResult(data, l);
+    $('#ttResult').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (e) {
+    $('#ttStatus').innerHTML = `<span class="text-rose-600 font-bold">${esc(e.message || L().planFail)}</span>`;
+  }
+}
+
+function resetTimetable() {
+  ttSchedule = null;
+  $('#ttResult').innerHTML = '';
+  $('#ttStats').classList.add('hidden');
+  $('#ttStats').innerHTML = '';
+  $('#ttPrintBtn').classList.add('hidden');
+  $('#ttStatus').classList.add('hidden');
+  $('#ttStatus').innerHTML = '';
+}
+
+function printTimetable() {
+  const l = L();
+  if (!ttSchedule) return;
+  const dayN = state.lang === 'ar' ? dayLabels : dayLabelsEn;
+  const rows = ttSchedule.schedule.map((d) => `
+    <tr><td class="num">${esc(d.dayLabel)}<br><small>${esc(d.date)}</small></td><td>${d.sessions.map((s) => `<b>${esc(s.subject)}:</b> ${esc(s.text)} <small>(${s.minutes} ${esc(l.ttMinutes)})</small>`).join('<br>')}</td></tr>`).join('');
+  const w = window.open('', '_blank');
+  if (!w) return;
+  w.document.write(`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>${esc(L().ttTitle)}</title><style>body{font-family:Cairo,'Segoe UI',Arial,sans-serif;direction:rtl;line-height:1.8;color:#1e293b;max-width:800px;margin:24px auto;padding:0 16px}h1{color:#312e81}table{width:100%;border-collapse:collapse;margin-top:12px}th,td{border:1px solid #cbd5e1;padding:8px 12px;text-align:right;vertical-align:top}td.num{white-space:nowrap;font-weight:bold}@media print{body{margin:0;padding:0}}</style></head><body><h1>${esc(L().ttTitle)}</h1><table><thead><tr><th>${esc(l.ttDays)}</th><th>${esc(l.ttTitle)}</th></tr></thead><tbody>${rows}</tbody></table><script>window.onload=function(){setTimeout(function(){window.print()},300)}<\/script></body></html>`);
+  w.document.close();
+}
+
+function bindTimetable() {
+  const gen = $('#ttGenerateBtn');
+  if (gen) gen.addEventListener('click', generateTimetable);
+  const st = $('#ttStartDate'); if (st) st.disabled = false;
+  const rs = $('#ttResetBtn'); if (rs) rs.addEventListener('click', resetTimetable);
+  const pr = $('#ttPrintBtn'); if (pr) pr.addEventListener('click', printTimetable);
+  const minus = $('#ttSessMinus'), plus = $('#ttSessPlus'), sess = $('#ttSessions');
+  if (minus && sess) minus.addEventListener('click', () => { sess.value = Math.max(1, (Number(sess.value) || 1) - 1); });
+  if (plus && sess) plus.addEventListener('click', () => { sess.value = Math.min(6, (Number(sess.value) || 1) + 1); });
 }
 
 /* ================= TTS (text to speech) ================= */
@@ -1407,6 +1541,7 @@ async function init() {
   bindLearn();
   bindStudyTools();
   bindFullscreen();
+  bindTimetable();
   initTts();
   bindDark();
   applyDark();

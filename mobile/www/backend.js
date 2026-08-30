@@ -742,6 +742,102 @@ async function quickquizHandler(body) {
   return { quiz: { question: q, options: cleaned, answerIndex, explanation: data.explanation || '' } };
 }
 
+/* ==================== TIMETABLE GENERATOR ==================== */
+const DAYS_AR = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
+const DAYS_EN = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+function pad2(n) { return n < 10 ? '0' + n : '' + n; }
+
+function dateToStr(d) { return d.getUTCFullYear() + '-' + pad2(d.getUTCMonth() + 1) + '-' + pad2(d.getUTCDate()); }
+
+async function timetableHandler(body) {
+  const {
+    bookIds = [], startDate, weekdays = [0, 1, 2, 3, 4, 5, 6],
+    sessionsPerDay = 1, minutesPerSession = 60, subjectsPerDay = 1, lang = 'ar',
+  } = body || {};
+  const books = [];
+  for (const id of (Array.isArray(bookIds) ? bookIds : [])) {
+    const b = await getBook(id);
+    if (b) books.push(b);
+  }
+  if (!books.length) return { status: 400, error: 'اختر كتاباً واحداً على الأقل لإنشاء الجدول.' };
+  if (!startDate || !/^\d{4}-\d{2}-\d{2}$/.test(String(startDate))) return { status: 400, error: 'حدّد تاريخ البداية بشكل صحيح.' };
+  const spd = Math.min(6, Math.max(1, parseInt(sessionsPerDay, 10) || 1));
+  const mps = Math.min(180, Math.max(15, parseInt(minutesPerSession, 10) || 60));
+  const subPerDay = Math.min(3, Math.max(1, parseInt(subjectsPerDay, 10) || 1));
+  const allowed = new Set((Array.isArray(weekdays) ? weekdays : []).map((d) => Number(d) % 7));
+
+  const subjects = [];
+  let totalUnits = 0;
+  for (const b of books) {
+    const chs = (b && b.chapters) || [];
+    if (!chs.length) {
+      subjects.push({ name: b.title || 'كتاب', queue: [{ chapterId: null, text: b.title || 'دراسة كاملة' }] });
+      totalUnits += 1;
+    } else {
+      subjects.push({ name: b.title || 'كتاب', queue: chs.map((c) => ({ chapterId: c.id, text: c.title })) });
+      totalUnits += chs.length;
+    }
+  }
+
+  const parts = String(startDate).split('-').map((x) => parseInt(x, 10));
+  let cursor = Date.UTC(parts[0], parts[1] - 1, parts[2]);
+  const schedule = [];
+  const dayNames = lang === 'ar' ? DAYS_AR : DAYS_EN;
+  let subIdx = 0;
+  let assigned = 0;
+  const MAX_DAYS = 730;
+  let guard = 0;
+
+  while (assigned < totalUnits && schedule.length < MAX_DAYS && guard++ < 1200) {
+    const dt = new Date(cursor);
+    cursor += 86400000;
+    const dow = dt.getUTCDay();
+    if (!allowed.has(dow)) continue;
+
+    const sessions = [];
+    const usedToday = new Set();
+    for (let s = 0; s < spd && assigned < totalUnits; s++) {
+      let pick = null;
+      const allowRepeat = usedToday.size >= subPerDay;
+      for (let t = 0; t < subjects.length && !pick; t++) {
+        const idx = (subIdx + t) % subjects.length;
+        const sub = subjects[idx];
+        if (!sub.queue.length) continue;
+        if (!allowRepeat && usedToday.has(sub.name)) continue;
+        pick = sub;
+        subIdx = idx;
+      }
+      if (!pick) {
+        for (let t = 0; t < subjects.length && !pick; t++) {
+          const idx = (subIdx + t) % subjects.length;
+          const sub = subjects[idx];
+          if (sub.queue.length) { pick = sub; subIdx = idx; }
+        }
+      }
+      if (!pick) break;
+      const u = pick.queue.shift();
+      usedToday.add(pick.name);
+      assigned++;
+      sessions.push({ subject: pick.name, text: u.text, chapterId: u.chapterId, minutes: mps });
+    }
+    schedule.push({ date: dateToStr(dt), weekday: dow, dayLabel: dayNames[dow], sessions });
+  }
+
+  if (assigned < totalUnits) return { status: 500, error: 'تعذّر إكمال الجدول ضمن المدة المعقولة، قلّل عدد الكتب.' };
+
+  const hoursPerWeek = Math.round(allowed.size * spd * (mps / 60) * 10) / 10;
+  return {
+    stats: {
+      books: books.length,
+      units: totalUnits,
+      days: schedule.length,
+      hoursPerWeek,
+    },
+    schedule,
+  };
+}
+
 /* ==================== REVIEW PLAN (spaced repetition) ==================== */
 function reviewPlanMessages({ topics, lang }) {
   const block = topics.slice(0, 10).map((t, i) => `${i + 1}. ${t.topic} (${t.weak}/${t.total} — ${t.weakPct}%)`).join('\n');
@@ -1185,6 +1281,10 @@ async function handleApi(method, pathname, init) {
   if (pathname === '/api/review-plan' && method === 'POST') {
     const body = (await readJsonBody(init)) || {};
     return jsonResponse(reviewPlanHandler(body));
+  }
+  if (pathname === '/api/timetable' && method === 'POST') {
+    const body = (await readJsonBody(init)) || {};
+    return jsonResponse(timetableHandler(body));
   }
 
   // ---------- exams ----------
