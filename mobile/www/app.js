@@ -10,6 +10,14 @@ const LABELS = {
     lblBook: 'الكتاب', lblChapter: 'الفصل', lblExplainStyle: 'أسلوب الشرح', lblChapters: 'الفصول المشمولة', lblLevel: 'المستوى', lblTypes: 'أنواع الأسئلة', lblCount: 'عدد الأسئلة', lblExamLang: 'لغة الامتحان', lblProvider: 'مزوّد الذكاء الاصطناعي', lblModel: 'الموديل', lblKey: 'مفتاح API', lblUILang: 'لغة الواجهة',
     styleDetailed: 'شرح مفصّل', styleSimple: 'مبسّط', styleExamFocus: 'مركّز للامتحانات',
     fsEnter: 'ملء الشاشة', fsExit: 'الخروج من ملء الشاشة',
+    btnFlashcards: '🃏 بطاقات', btnFlashcardsT: 'بطاقات مراجعة من الفصل',
+    btnQuickQuiz: '❓ سؤال سريع', btnQuickQuizT: 'سؤال قصير أثناء القراءة',
+    btnExplainMd: 'تحميل الشرح Markdown', btnExplainPrint: 'حفظ/طباعة الشرح PDF',
+    btnReviewPlan: '🗓 خطة مراجعة', btnReviewPlanT: 'خطة مراجعة متباعدة لمواضيعك الضعيفة',
+    cardsThinking: 'جاري توليد البطاقات...', cardsEmpty: 'لم تُولَّد بطاقات، جرّب مجدداً', cardsCount: 'بطاقة {n}', cardsFlip: 'اعرض الإجابة', cardsFlipBack: 'اعرض السؤال', cardsPrev: 'السابق', cardsNext: 'التالي',
+    quizThinking: 'جاري توليد سؤال...', quizTitle: 'اختبار سريع ⚡', quizAgain: 'سؤال آخر', quizCorrect: 'إجابة صحيحة 🎉', quizWrong: 'إجابة خاطئة', quizScore: 'نتيجتك الآن: {a}/{b}',
+    planTitle: 'خطة مراجعة متباعدة', planThinking: 'جاري إعداد الخطة...', planFail: 'تعذّر إعداد الخطة، جرّب مجدداً', planEmpty: 'لا توجد نتائج امتحانات بعد، حلّ اختباراً أولاً', planDay: 'اليوم',
+    explainMdSave: 'تم تنزيل ملف الشرح', explainNoText: 'لا يوجد شرح بعد — اضغط "اشرح" أولاً',
     ttsListen: 'استماع للشرح', ttsStop: 'إيقاف', ttsNoText: 'لا يوجد نص للاستماع', ttsUnsupported: 'المتصفح لا يدعم القراءة الصوتية',
     darkOn: 'الوضع الليلي', darkOff: 'الوضع النهاري',
     exportPng: 'حفظ الرسم صورة', printDiagram: 'طباعة الرسم',
@@ -48,6 +56,14 @@ const LABELS = {
     lblBook: 'Book', lblChapter: 'Chapter', lblExplainStyle: 'Explanation style', lblChapters: 'Chapters included', lblLevel: 'Level', lblTypes: 'Question types', lblCount: 'Number of questions', lblExamLang: 'Exam language', lblProvider: 'AI provider', lblModel: 'Model', lblKey: 'API key', lblUILang: 'UI language',
     styleDetailed: 'Detailed', styleSimple: 'Simplified', styleExamFocus: 'Exam-focused',
     fsEnter: 'Fullscreen', fsExit: 'Exit fullscreen',
+    btnFlashcards: '🃏 Flashcards', btnFlashcardsT: 'Review flashcards from the chapter',
+    btnQuickQuiz: '❓ Quick quiz', btnQuickQuizT: 'Short question while reading',
+    btnExplainMd: 'Download explanation (Markdown)', btnExplainPrint: 'Save/Print explanation (PDF)',
+    btnReviewPlan: '🗓 Review plan', btnReviewPlanT: 'Spaced-repetition plan for your weak topics',
+    cardsThinking: 'Generating flashcards...', cardsEmpty: 'No cards generated, try again', cardsCount: 'Card {n}', cardsFlip: 'Show answer', cardsFlipBack: 'Show question', cardsPrev: 'Prev', cardsNext: 'Next',
+    quizThinking: 'Generating question...', quizTitle: 'Quick quiz ⚡', quizAgain: 'Another question', quizCorrect: 'Correct! 🎉', quizWrong: 'Wrong', quizScore: 'Current score: {a}/{b}',
+    planTitle: 'Spaced Repetition Plan', planThinking: 'Building your plan...', planFail: 'Could not build the plan, try again', planEmpty: 'No exam results yet — take an exam first', planDay: 'Day',
+    explainMdSave: 'Explanation file downloaded', explainNoText: 'No explanation yet — press "Explain" first',
     ttsListen: 'Listen to explanation', ttsStop: 'Stop', ttsNoText: 'Nothing to read', ttsUnsupported: 'Your browser does not support text-to-speech',
     darkOn: 'Dark mode', darkOff: 'Light mode',
     exportPng: 'Save diagram as image', printDiagram: 'Print diagram',
@@ -92,7 +108,7 @@ let state = {
   examTaking: null,
   examChapters: [],
   chat: { messages: [], controller: null, sending: false },
-  explain: { controller: null },
+  explain: { controller: null, md: '' },
   currentResultId: null,
   uploadBusy: false,
 };
@@ -433,6 +449,8 @@ function renderLearn() {
   $('#explainContent').innerHTML = '';
   $('#explainBox').classList.add('hidden');
   $('#chatBox').innerHTML = '';
+  const qb = $('#quizBox'); if (qb) qb.classList.add('hidden');
+  const cb = $('#cardsBox'); if (cb) cb.classList.add('hidden');
   if (window.PdfViewer) window.PdfViewer.clear();
   updatePdfToggleUI();
 }
@@ -490,15 +508,37 @@ function setFullscreenTarget(el) {
   if (!el || el.classList.contains('hidden')) return;
   const prev = fsState.el;
   if (prev) prev.classList.remove('fs-active');
-  if (prev === el) { el = null; } else { el.classList.add('fs-active'); }
-  document.body.classList.toggle('fs-open', !!el);
-  fsState.el = el;
+  const active = !(prev === el);
+  const target = active ? el : null;
+  if (target) target.classList.add('fs-active');
+  document.body.classList.toggle('fs-open', !!target);
+  fsState.el = target;
   fsButtons().forEach((b) => {
-    const mine = !!(el && b.dataset.fsTarget === el.id);
+    const mine = !!(target && b.dataset.fsTarget === el.id);
     b.classList.toggle('fs-on', mine);
     b.title = mine ? L().fsExit : L().fsEnter;
   });
+  if (target) enterRealFs(); else exitRealFs();
   setTimeout(() => window.dispatchEvent(new Event('resize')), 60);
+}
+
+function enterRealFs() {
+  const doc = document.documentElement;
+  try {
+    if (doc && doc.requestFullscreen && !document.fullscreenElement) {
+      const p = doc.requestFullscreen();
+      if (p && typeof p.catch === 'function') p.catch(() => {});
+    }
+  } catch (e) {}
+}
+
+function exitRealFs() {
+  try {
+    if (document.fullscreenElement && document.exitFullscreen) {
+      const p = document.exitFullscreen();
+      if (p && typeof p.catch === 'function') p.catch(() => {});
+    }
+  } catch (e) {}
 }
 
 function setCommonTitles() {
@@ -506,6 +546,9 @@ function setCommonTitles() {
     paneFsBtn: L().fsEnter, explainFsBtn: L().fsEnter,
     ttsBtn: L().ttsListen, darkToggle: document.body.classList.contains('dark') ? L().darkOff : L().darkOn,
     diagramPngBtn: L().exportPng, diagramPrintBtn: L().printDiagram,
+    flashcardsBtn: L().btnFlashcardsT, quizBtn: L().btnQuickQuizT,
+    explainMdBtn: L().btnExplainMd, explainPrintBtn: L().btnExplainPrint,
+    reviewPlanBtn: L().btnReviewPlanT,
   };
   Object.keys(t).forEach((id) => { const el = document.getElementById(id); if (el) el.title = t[id]; });
 }
@@ -519,6 +562,224 @@ function bindFullscreen() {
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && fsState.el) setFullscreenTarget(fsState.el);
   });
+  document.addEventListener('fullscreenchange', () => {
+    if (!document.fullscreenElement && fsState.el) {
+      const el = fsState.el;
+      el.classList.remove('fs-active');
+      document.body.classList.remove('fs-open');
+      fsState.el = null;
+      fsButtons().forEach((b) => { b.classList.remove('fs-on'); b.title = L().fsEnter; });
+      setTimeout(() => window.dispatchEvent(new Event('resize')), 60);
+    }
+  });
+}
+
+/* ================= STUDY AIDS (flashcards / quick quiz / review plan / exports) ================= */
+const flashState = { cards: [], idx: 0, show: false, title: '' };
+const quizState = { asked: 0, correct: 0 };
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1500);
+}
+
+async function apiPost(path, bodyObj) {
+  const res = await fetch(path, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(bodyObj) });
+  let data = null;
+  try { data = await res.json(); } catch (e) { data = null; }
+  if (!res.ok) throw new Error(data?.error || 'HTTP ' + res.status);
+  return data;
+}
+
+async function showFlashcards() {
+  if (!state.learn.bookId || !state.learn.chapterId) { toast(L().chooseChapter); return; }
+  const box = $('#cardsBox');
+  const explain = $('#explainBox');
+  if (explain) explain.classList.remove('hidden');
+  if (quizBoxIsVisible()) $('#quizBox').classList.add('hidden');
+  box.classList.remove('hidden');
+  box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  box.innerHTML = `<div class="flex items-center justify-center gap-2 text-sm text-slate-500 py-6"><div class="spinner" style="width:16px;height:16px;border-width:2px"></div>${esc(L().cardsThinking)}</div>`;
+  try {
+    const data = await apiPost('/api/flashcards', { bookId: state.learn.bookId, chapterId: state.learn.chapterId, lang: state.lang });
+    const cards = (data?.cards || []).filter((c) => c && c.question && c.answer);
+    const chapter = (state.books.find((b) => b.id === state.learn.bookId)?.chapters || []).find((c) => c.id === state.learn.chapterId);
+    if (!cards.length) { box.classList.add('hidden'); toast(L().cardsEmpty); return; }
+    flashState.cards = cards; flashState.idx = 0; flashState.show = false; flashState.title = chapter?.title || '';
+    renderFlashcard();
+  } catch (e) {
+    box.classList.add('hidden');
+    toast(e.message || L().cardsEmpty);
+  }
+}
+
+function quizBoxIsVisible() {
+  const q = $('#quizBox');
+  return q && !q.classList.contains('hidden');
+}
+
+function renderFlashcard() {
+  const box = $('#cardsBox');
+  if (!box) return;
+  const c = flashState.cards[flashState.idx];
+  const n = flashState.idx + 1;
+  box.innerHTML = `
+    <div class="flex items-center justify-between mb-2">
+      <span class="text-xs font-bold text-slate-500">${esc(flashState.title)} · ${esc(L().cardsCount.replace('{n}', n + '/' + flashState.cards.length))}</span>
+      <button id="cardsClose" class="btn-ghost text-xs px-2.5 py-1.5 rounded-lg">✕</button>
+    </div>
+    <div class="rounded-xl border-2 border-brand-200 bg-white p-5 min-h-[8rem] flex flex-col justify-center">
+      <p class="text-[10px] font-bold text-brand-400 tracking-wide mb-1">${flashState.show ? L().cardsFlipBack : L().cardsFlip}</p>
+      <p class="font-bold text-brand-800 leading-relaxed">${esc(flashState.show ? c.answer : c.question)}</p>
+    </div>
+    <div class="flex flex-wrap gap-2 mt-3">
+      <button id="cardsPrev" class="btn-secondary text-xs px-3 py-2 rounded-lg">${esc(L().cardsPrev)}</button>
+      <button id="cardsFlip" class="btn-primary flex-1 text-xs px-3 py-2 rounded-lg">${flashState.show ? L().cardsFlipBack : L().cardsFlip}</button>
+      <button id="cardsNext" class="btn-secondary text-xs px-3 py-2 rounded-lg">${esc(L().cardsNext)}</button>
+    </div>`;
+  const close = () => box.classList.add('hidden');
+  $('#cardsClose').addEventListener('click', close);
+  $('#cardsPrev').addEventListener('click', () => { if (flashState.idx > 0) { flashState.idx--; flashState.show = false; renderFlashcard(); } });
+  $('#cardsNext').addEventListener('click', () => { if (flashState.idx < flashState.cards.length - 1) { flashState.idx++; flashState.show = false; renderFlashcard(); } });
+  $('#cardsFlip').addEventListener('click', () => { flashState.show = !flashState.show; renderFlashcard(); });
+}
+
+async function showQuickQuiz() {
+  if (!state.learn.bookId || !state.learn.chapterId) { toast(L().chooseChapter); return; }
+  const box = $('#quizBox');
+  const explain = $('#explainBox');
+  if (explain) explain.classList.remove('hidden');
+  const cb = $('#cardsBox'); if (cb) cb.classList.add('hidden');
+  box.classList.remove('hidden');
+  box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  box.innerHTML = `<div class="flex items-center justify-center gap-2 text-sm text-slate-500 py-6"><div class="spinner" style="width:16px;height:16px;border-width:2px"></div>${esc(L().quizThinking)}</div>`;
+  try {
+    const data = await apiPost('/api/quickquiz', { bookId: state.learn.bookId, chapterId: state.learn.chapterId, lang: state.lang });
+    const q = data?.quiz;
+    if (!q || !q.question || !q.options?.length) { box.classList.add('hidden'); toast(L().cardsEmpty); return; }
+    quizState.asked++;
+    renderQuickQuiz(q);
+  } catch (e) {
+    box.classList.add('hidden');
+    toast(e.message || L().cardsEmpty);
+  }
+}
+
+function renderQuickQuiz(q) {
+  const box = $('#quizBox');
+  if (!box) return;
+  const idxCorrect = q.answerIndex;
+  const optCls = (i, answered, chosen) => {
+    if (!answered) return 'border-slate-200 bg-white hover:bg-brand-50';
+    if (i === idxCorrect) return 'border-emerald-500 bg-emerald-50 text-emerald-700';
+    if (i === chosen) return 'border-rose-500 bg-rose-50 text-rose-700';
+    return 'border-slate-200 bg-white text-slate-400';
+  };
+  box.innerHTML = `
+    <div class="flex items-center justify-between mb-2">
+      <span class="text-xs font-bold text-slate-500">⚡ ${esc(L().quizTitle)} · ${L().quizScore.replace('{a}', quizState.correct).replace('{b}', quizState.asked)}</span>
+      <button id="quizClose" class="btn-ghost text-xs px-2.5 py-1.5 rounded-lg">✕</button>
+    </div>
+    <p class="font-bold text-slate-800 leading-relaxed mb-3">${esc(q.question)}</p>
+    <div class="space-y-2" id="quizOptions"></div>
+    <p id="quizExplain" class="hidden text-sm text-slate-600 bg-slate-50 border border-slate-200 rounded-xl p-3 leading-relaxed mt-3"></p>
+    <button id="quizAgain" class="hidden btn-primary w-full text-sm px-3 py-2.5 rounded-xl mt-3">${esc(L().quizAgain)}</button>`;
+  const opts = $('#quizOptions');
+  opts.innerHTML = '';
+  q.options.forEach((o, i) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = o;
+    b.className = `w-full text-right px-3 py-2.5 rounded-xl border text-sm font-semibold transition ${optCls(i, false, -1)}`;
+    b.addEventListener('click', () => {
+      const isCorrect = i === idxCorrect;
+      if (isCorrect) quizState.correct++;
+      opts.innerHTML = '';
+      q.options.forEach((oo, j) => {
+        const x = document.createElement('button');
+        x.type = 'button';
+        x.disabled = true;
+        x.textContent = oo;
+        x.className = `w-full text-right px-3 py-2.5 rounded-xl border text-sm font-semibold ${optCls(j, true, i)}`;
+        opts.appendChild(x);
+      });
+      const msg = (chosenIdx, correct) => (chosenIdx === correct ? ' ' + L().quizCorrect : ' ' + L().quizWrong + ' — ' + L().quizScore.replace('{a}', quizState.correct).replace('{b}', quizState.asked));
+      const exp = $('#quizExplain');
+      exp.textContent = msg(i, idxCorrect) + (q.explanation ? '\n' + q.explanation : '');
+      exp.classList.add('hidden');
+      requestAnimationFrame(() => exp.classList.remove('hidden'));
+      const again = $('#quizAgain');
+      again.classList.remove('hidden');
+      again.addEventListener('click', showQuickQuiz);
+    });
+    opts.appendChild(b);
+  });
+  $('#quizClose').addEventListener('click', () => box.classList.add('hidden'));
+}
+
+function downloadExplainMd() {
+  const md = state.explain?.md || '';
+  if (!md.trim()) { toast(L().explainNoText); return; }
+  const b = state.books.find((x) => x.id === state.learn.bookId);
+  const ch = (b?.chapters || []).find((x) => x.id === state.learn.chapterId);
+  const heading = (ch && ch.title) || (b && b.title) || 'explain';
+  const title = heading.replace(/[\\/:*?"<>|]+/g, '-');
+  downloadBlob(new Blob(['# ' + heading + '\n\n' + md], { type: 'text/markdown;charset=utf-8' }), title + '.md');
+  toast(L().explainMdSave);
+}
+
+function printExplain() {
+  const el = $('#explainContent');
+  if (!el || !el.textContent.trim()) { toast(L().explainNoText); return; }
+  const b = state.books.find((x) => x.id === state.learn.bookId);
+  const ch = (b?.chapters || []).find((x) => x.id === state.learn.chapterId);
+  const title = ch?.title || b?.title || 'explanation';
+  const w = window.open('', '_blank');
+  if (!w) return;
+  w.document.write(`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>${esc(title)}</title><style>body{font-family:Cairo,'Segoe UI',Arial,sans-serif;direction:rtl;line-height:1.8;color:#1e293b;max-width:800px;margin:24px auto;padding:0 16px}h1,h2,h3,h4{color:#312e81}pre{background:#f1f5f9;padding:12px;border-radius:8px;direction:ltr;text-align:left;overflow-x:auto}code{background:#f1f5f9;padding:1px 5px;border-radius:4px}table{border-collapse:collapse;width:100%;margin:8px 0}th,td{border:1px solid #cbd5e1;padding:6px 10px;text-align:right}img{max-width:100%}blockquote{border-right:4px solid #c7d2fe;margin:8px 0;padding:4px 12px;color:#475569}@media print{body{margin:0;padding:0}}</style></head><body><h1>${esc(title)}</h1>${el.innerHTML}<script>window.onload=function(){setTimeout(function(){window.print()},300)}<\/script></body></html>`);
+  w.document.close();
+}
+
+async function showReviewPlan() {
+  const box = $('#reviewPlanBox');
+  if (!box) return;
+  box.classList.remove('hidden');
+  box.innerHTML = `<div class="flex items-center justify-center gap-2 text-sm text-slate-500 py-6"><div class="spinner" style="width:16px;height:16px;border-width:2px"></div>${esc(L().planThinking)}</div>`;
+  try {
+    const data = await apiPost('/api/review-plan', { lang: state.lang });
+    const plan = data?.plan;
+    const days = Array.isArray(plan?.days) ? plan.days : [];
+    if (!days.length) { box.classList.add('hidden'); toast(L().planEmpty); return; }
+    renderPlanCards(plan);
+  } catch (e) {
+    box.classList.add('hidden');
+    toast(e.message || L().planFail);
+  }
+}
+
+function renderPlanCards(plan) {
+  const box = $('#reviewPlanBox');
+  if (!box) return;
+  box.innerHTML = `
+    <div class="flex items-center justify-between mb-1">
+      <h3 class="font-extrabold text-brand-800 text-lg">🗓 ${esc(L().planTitle)}</h3>
+      <button id="planClose" class="btn-ghost text-xs px-2.5 py-1.5 rounded-lg">✕</button>
+    </div>
+    <p class="text-sm text-slate-500 mb-4 leading-relaxed">${esc(plan.summary || '')}</p>
+    ${plan.days.map((d) => `
+      <div class="border border-slate-200 rounded-xl p-4 mb-3 bg-white">
+        <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+          <span class="font-extrabold text-brand-700">${esc(d.label || L().planDay + ' ' + d.day)}</span>
+          <span class="flex flex-wrap gap-1">${(d.topics || []).map((t) => `<span class="inline-block bg-amber-100 text-amber-800 text-[11px] font-bold px-2.5 py-1 rounded-full">${esc(t)}</span>`).join('')}</span>
+        </div>
+        <ul class="space-y-1.5">${(d.tasks || []).map((t) => `<li class="text-sm text-slate-600 flex gap-2"><span class="text-brand-400">•</span><span>${esc(t)}</span></li>`).join('')}</ul>
+      </div>`).join('')}`;
+  $('#planClose').addEventListener('click', () => box.classList.add('hidden'));
 }
 
 /* ================= TTS (text to speech) ================= */
@@ -598,6 +859,14 @@ function bindDark() {
   if (btn) btn.addEventListener('click', () => applyDark(!document.body.classList.contains('dark')));
 }
 
+function bindStudyTools() {
+  const f = $('#flashcardsBtn'); if (f) f.addEventListener('click', showFlashcards);
+  const q = $('#quizBtn'); if (q) q.addEventListener('click', showQuickQuiz);
+  const md = $('#explainMdBtn'); if (md) md.addEventListener('click', downloadExplainMd);
+  const pr = $('#explainPrintBtn'); if (pr) pr.addEventListener('click', printExplain);
+  const rp = $('#reviewPlanBtn'); if (rp) rp.addEventListener('click', showReviewPlan);
+}
+
 function bindLearn() {
   $('#learnBook').addEventListener('change', (e) => {
     state.learn.bookId = e.target.value;
@@ -636,6 +905,9 @@ function bindLearn() {
     state.explain.controller = controller;
     $('#explainBox').classList.remove('hidden');
     $('#explainContent').innerHTML = '';
+    $('#quizBox').classList.add('hidden');
+    $('#cardsBox').classList.add('hidden');
+    state.explain.md = '';
     $('#stopExplainBtn').classList.remove('hidden');
     setStatusChip(L().thinking);
     const style = $('#learnStyle').value;
@@ -648,6 +920,7 @@ function bindLearn() {
         signal: controller.signal,
         onChunk: (t) => {
           full += t;
+          state.explain.md = full;
           $('#explainContent').innerHTML = renderMarkdown(full);
         },
         onDone: () => {
@@ -1132,6 +1405,7 @@ async function init() {
   document.querySelectorAll('.tab-btn').forEach((b) => b.addEventListener('click', () => switchTab(b.dataset.tab)));
   bindUpload();
   bindLearn();
+  bindStudyTools();
   bindFullscreen();
   initTts();
   bindDark();

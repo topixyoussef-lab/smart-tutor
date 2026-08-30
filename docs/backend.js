@@ -636,6 +636,166 @@ async function diagramHandler(body) {
   return { diagram: normalizeDiagram(data) };
 }
 
+/* ==================== FLASHCARDS ==================== */
+function flashcardMessages({ bookTitle, chapterTitle, chapterText, lang, count }) {
+  const user = lang === 'ar'
+    ? `أنشئ ${count} بطاقات مراجعة (flashcards) للفصل التالي، كل بطاقة من "سؤال/مصطلح" و"إجابة قصيرة مباشرة" تغطي أهم المفاهيم والتعريفات والقوانين والنقاط المتوقعة في الامتحان.
+
+أعد JSON فقط بهذا الشكل تماماً دون أي كلام إضافي أو علامات:
+{"cards":[{"question":"...","answer":"..."}]}
+
+شروط:
+- الإجابة قصيرة (سطران كحد أقصى) وواضحة.
+- غطِّ مواضيع مختلفة من الفصل لا سؤالاً واحداً مكرراً.
+- اكتب بالعربية مع إبقاء المصطلحات العلمية بالإنجليزية بين قوسين عند الحاجة.
+
+${bookTitle} — ${chapterTitle}
+
+${chapterText}`
+    : `Create ${count} review flashcards for the chapter below, each card has a "question/term" and a short direct "answer" covering the most important concepts, definitions, formulas, and exam-likely points.
+
+Return ONLY JSON in exactly this shape with no extra text or markers:
+{"cards":[{"question":"...","answer":"..."}]}
+
+Rules:
+- The answer is short (2 lines max) and clear.
+- Cover different topics of the chapter, not one question repeated.
+- Write everything in English.
+
+${bookTitle} — ${chapterTitle}
+
+${chapterText}`;
+  return [systemTeacher(lang), { role: 'user', content: user }];
+}
+
+async function flashcardsHandler(body) {
+  const { bookId, chapterId, lang } = body;
+  const count = Math.min(12, Math.max(4, parseInt(body.count || 8, 10)));
+  const book = await getBook(bookId);
+  const chapter = await getChapterById(book, chapterId);
+  if (!book || !chapter) return { status: 404, error: 'الفصل أو الكتاب غير موجود' };
+  const pages = await getPages(bookId);
+  const text = sliceContext(chapterText(pages, chapter), MAX_CTX);
+  if (!text.trim()) return { status: 400, error: 'لا يوجد نص مستخرج لهذا الفصل. أعد رفع الكتاب دون تحديد حد أقصى لعدد الصفحات.' };
+  const msgs = flashcardMessages({ bookTitle: book.title, chapterTitle: chapter.title, chapterText: text, lang, count });
+  const data = await chatJson(msgs, { temperature: 0.4, maxTokens: 4000 });
+  const raw = Array.isArray(data?.cards) ? data.cards : Array.isArray(data) ? data : (data?.cards ? [data.cards] : []);
+  const cards = raw
+    .map((c) => ({
+      question: String(c?.question || c?.q || '').trim(),
+      answer: String(c?.answer || c?.a || '').trim(),
+    }))
+    .filter((c) => c.question && c.answer)
+    .slice(0, count);
+  if (!cards.length) return { status: 500, error: 'الموديل لم يُرجع بطاقات صالحة، حاول مجدداً.' };
+  return { cards };
+}
+
+/* ==================== QUICK QUIZ ==================== */
+function quickquizMessages({ bookTitle, chapterTitle, chapterText, lang }) {
+  const user = lang === 'ar'
+    ? `أنشئ سؤالاً قصيراً واحداً (اختيار من متعدد) لاختبار الفهم أثناء قراءة الفصل التالي.
+
+أعد JSON فقط بهذا الشكل تماماً دون أي كلام إضافي:
+{"question":"...","options":["أ","ب","ج","د"],"answerIndex":0,"explanation":"شرح صغير"}
+
+شروط:
+- خيار واحد صحيح فقط والبقية مشتتات معقولة.
+- ركّز على مفهوم أساسي واحد من الفصل.
+- اكتب بالعربية.
+
+${bookTitle} — ${chapterTitle}
+
+${chapterText}`
+    : `Create ONE short multiple-choice question to test understanding while reading the chapter below.
+
+Return ONLY JSON in exactly this shape with no extra text:
+{"question":"...","options":["a","b","c","d"],"answerIndex":0,"explanation":"short explanation"}
+
+Rules:
+- Exactly one correct option; the others are plausible distractors.
+- Focus on ONE core concept from the chapter.
+- Write everything in English.
+
+${bookTitle} — ${chapterTitle}
+
+${chapterText}`;
+  return [systemTeacher(lang), { role: 'user', content: user }];
+}
+
+async function quickquizHandler(body) {
+  const { bookId, chapterId, lang } = body;
+  const book = await getBook(bookId);
+  const chapter = await getChapterById(book, chapterId);
+  if (!book || !chapter) return { status: 404, error: 'الفصل أو الكتاب غير موجود' };
+  const pages = await getPages(bookId);
+  const text = sliceContext(chapterText(pages, chapter), MAX_CTX);
+  if (!text.trim()) return { status: 400, error: 'لا يوجد نص مستخرج لهذا الفصل.' };
+  const msgs = quickquizMessages({ bookTitle: book.title, chapterTitle: chapter.title, chapterText: text, lang });
+  const data = await chatJson(msgs, { temperature: 0.3, maxTokens: 1500 });
+  const q = data?.question || data?.quiz?.question;
+  const options = Array.isArray(data?.options) ? data.options : [];
+  if (!q || options.length < 2) return { status: 500, error: 'الموديل لم يُرجع سؤالاً صالحاً، حاول مجدداً.' };
+  const cleaned = options.slice(0, 5).map((o) => String(o).trim());
+  let answerIndex = parseInt(data.answerIndex, 10);
+  if (!Number.isInteger(answerIndex) || answerIndex < 0 || answerIndex >= cleaned.length) answerIndex = 0;
+  return { quiz: { question: q, options: cleaned, answerIndex, explanation: data.explanation || '' } };
+}
+
+/* ==================== REVIEW PLAN (spaced repetition) ==================== */
+function reviewPlanMessages({ topics, lang }) {
+  const block = topics.slice(0, 10).map((t, i) => `${i + 1}. ${t.topic} (${t.weak}/${t.total} — ${t.weakPct}%)`).join('\n');
+  const user = lang === 'ar'
+    ? `أنشئ خطة مراجعة متباعدة (spaced repetition) لمدة 7 أيام لمواضيع الطالب الأضعف.
+
+أعد JSON فقط بهذا الشكل تماماً دون أي كلام إضافي:
+{"plan":{"summary":"وصف مختصر","days":[{"day":1,"label":"اليوم 1","topics":["موضوع"],"tasks":["مهمة محددة","مهمة أخرى"]}]}}
+
+شروط:
+- الأيام 7 أيام، وكل موضوع ضعيف يتكرر بأيام متباعدة (في اليوم 1 ثم 3 ثم 7 مثلاً).
+- كل مهمة محددة وقابلة للتنفيذ (راجع ملاحظاتك، حل مسائل، اصنع بطاقات، حل اختبار قصير).
+- اكتب بالعربية.
+
+المواضيع الضعيفة (من الأضعف للأقوى):
+${block}`
+    : `Create a 7-day spaced-repetition review plan for the student's weakest topics.
+
+Return ONLY JSON in exactly this shape with no extra text:
+{"plan":{"summary":"short overview","days":[{"day":1,"label":"Day 1","topics":["topic"],"tasks":["concrete task","another task"]}]}}
+
+Rules:
+- 7 days; each weak topic repeats on spaced days (e.g. day 1 then 3 then 7).
+- Each task is concrete and actionable (review your notes, solve problems, make flashcards, take a short quiz).
+- Write everything in English.
+
+Weak topics (weakest first):
+${block}`;
+  return [systemTeacher(lang), { role: 'user', content: user }];
+}
+
+async function reviewPlanHandler(body) {
+  const { lang } = body;
+  const results = await listResults();
+  const count = {};
+  const total = {};
+  for (const r of results) {
+    for (const q of r.questions || []) {
+      const t = q.topic || 'عام';
+      total[t] = (total[t] || 0) + 1;
+      if (!q.correct) count[t] = (count[t] || 0) + 1;
+    }
+  }
+  const topics = Object.keys(total)
+    .map((t) => ({ topic: t, total: total[t], weak: count[t] || 0, weakPct: Math.round(((count[t] || 0) / total[t]) * 100) }))
+    .sort((a, b) => b.weakPct - a.weakPct || b.weak - a.weak);
+  if (!topics.length) return { status: 400, error: 'لا توجد نتائج امتحانات بعد، حل اختباراً أولاً.' };
+  const msgs = reviewPlanMessages({ topics, lang });
+  const data = await chatJson(msgs, { temperature: 0.4, maxTokens: 4000 });
+  const days = Array.isArray(data?.plan?.days) ? data.plan.days : (Array.isArray(data?.days) ? data.days : []);
+  if (!days.length) return { status: 500, error: 'الموديل لم يُرجع خطة صالحة، حاول مجدداً.' };
+  return { plan: { summary: data?.plan?.summary || data?.summary || '', days: days.slice(0, 7) } };
+}
+
 const EXAM_SCHEMA_EXPLANATION = `{
   "questions": [
     {
@@ -1011,6 +1171,20 @@ async function handleApi(method, pathname, init) {
   if (pathname === '/api/diagram' && method === 'POST') {
     const body = (await readJsonBody(init)) || {};
     return jsonResponse(diagramHandler(body));
+  }
+
+  // ---------- study aids ----------
+  if (pathname === '/api/flashcards' && method === 'POST') {
+    const body = (await readJsonBody(init)) || {};
+    return jsonResponse(flashcardsHandler(body));
+  }
+  if (pathname === '/api/quickquiz' && method === 'POST') {
+    const body = (await readJsonBody(init)) || {};
+    return jsonResponse(quickquizHandler(body));
+  }
+  if (pathname === '/api/review-plan' && method === 'POST') {
+    const body = (await readJsonBody(init)) || {};
+    return jsonResponse(reviewPlanHandler(body));
   }
 
   // ---------- exams ----------
