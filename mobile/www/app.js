@@ -529,7 +529,7 @@ function setSplitMode(on) {
   if (btn) {
     btn.classList.toggle('btn-primary', state.splitMode);
     btn.classList.toggle('btn-ghost', !state.splitMode);
-    btn.textContent = state.splitMode ? L().splitFull : L().splitHalf;
+    btn.textContent = state.splitMode ? '⊟' : '⊞';
     btn.title = state.splitMode ? L().splitTitleOff : L().splitTitle;
   }
 }
