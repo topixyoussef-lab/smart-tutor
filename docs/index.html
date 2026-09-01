@@ -112,6 +112,12 @@
           <button id="diagramBtn" class="btn-secondary" data-i18n="btnDiagram" title="Visual / Diagram-based Explanation — الشرح باستخدام الرسوم والمخططات"></button>
           <button id="summaryBtn" class="btn-secondary" data-i18n="btnSummary" title="ملخص سريع"></button>
         </div>
+        <div class="flex items-center gap-3 mt-2">
+          <label class="flex items-center gap-1.5 cursor-pointer">
+            <input type="checkbox" id="visualExplain" class="accent-brand-500">
+            <span class="text-xs font-bold text-slate-600" data-i18n="lblVisualExplain">شرح بالصور من الكتاب</span>
+          </label>
+        </div>
         <div class="flex items-end gap-2 mt-2">
           <button id="quizBtn" class="btn-secondary flex-1" data-i18n="btnQuickQuiz" title="Quick quiz while reading — اختبار سريع أثناء القراءة"></button>
           <button id="flashcardsBtn" class="btn-secondary flex-1" data-i18n="btnFlashcards" title="Review flashcards — بطاقات مراجعة"></button>
@@ -140,6 +146,7 @@
             </button>
           </div>
           <div id="explainContent" class="md-body prose"></div>
+          <div id="explainVisualBox" class="hidden mt-5 pt-4 border-t border-slate-200"></div>
           <div id="quizBox" class="hidden mt-5 pt-4 border-t border-slate-200"></div>
           <div id="cardsBox" class="hidden mt-5 pt-4 border-t border-slate-200"></div>
           <div class="flex items-center justify-between mt-4">

@@ -24,6 +24,7 @@ const LABELS = {
     ttBooksHint: 'لا توجد كتب بعد — ارفع كتب المناهج من تبويب الكتب أولاً',
     ttStatsBooks: 'كتب', ttStatsUnits: 'درساً', ttStatsDays: 'أيام دراسية', ttStatsHours: 'ساعة/أسبوع',
     ttDayAll: 'كل الأيام',
+    lblVisualExplain: 'شرح بالصور من الكتاب', visualExplain: 'شرح مرئي بالصور', visualExplainShort: 'مرئي',
     ttsListen: 'استماع للشرح', ttsStop: 'إيقاف', ttsNoText: 'لا يوجد نص للاستماع', ttsUnsupported: 'المتصفح لا يدعم القراءة الصوتية',
     darkOn: 'الوضع الليلي', darkOff: 'الوضع النهاري',
     exportPng: 'حفظ الرسم صورة', printDiagram: 'طباعة الرسم',
@@ -76,6 +77,7 @@ const LABELS = {
     ttBooksHint: 'No books yet — upload your curriculum books first',
     ttStatsBooks: 'books', ttStatsUnits: 'lessons', ttStatsDays: 'study days', ttStatsHours: 'hrs/week',
     ttDayAll: 'Every day',
+    lblVisualExplain: 'Visual explanation with book pages', visualExplain: 'Visual explanation', visualExplainShort: 'Visual',
     ttsListen: 'Listen to explanation', ttsStop: 'Stop', ttsNoText: 'Nothing to read', ttsUnsupported: 'Your browser does not support text-to-speech',
     darkOn: 'Dark mode', darkOff: 'Light mode',
     exportPng: 'Save diagram as image', printDiagram: 'Print diagram',
@@ -120,7 +122,7 @@ let state = {
   examTaking: null,
   examChapters: [],
   chat: { messages: [], controller: null, sending: false },
-  explain: { controller: null, md: '' },
+  explain: { controller: null, md: '', images: [] },
   currentResultId: null,
   uploadBusy: false,
 };
@@ -462,6 +464,8 @@ function renderLearn() {
   $('#explainContent').innerHTML = '';
   $('#explainBox').classList.add('hidden');
   $('#chatBox').innerHTML = '';
+  const vbox = $('#explainVisualBox'); if (vbox) vbox.classList.add('hidden');
+  state.explain.images = [];
   const qb = $('#quizBox'); if (qb) qb.classList.add('hidden');
   const cb = $('#cardsBox'); if (cb) cb.classList.add('hidden');
   if (window.PdfViewer) window.PdfViewer.clear();
@@ -495,6 +499,71 @@ function showChapterPdf() {
     window.PdfViewer.show(state.learn.bookId, pr.start, pr.end);
     updatePdfToggleUI();
   }
+}
+
+/* ================= VISUAL EXPLANATION (extract PDF pages as images) ================= */
+async function extractPdfPagesAsImages(bookId, pageStart, pageEnd, maxImages) {
+  const imgs = [];
+  if (!window.PdfViewer || !window.__SMART) return imgs;
+  try {
+    const smart = await window.__SMART;
+    const book = await smart.getBook(bookId);
+    if (!book) return imgs;
+    const file = await smart.getOriginalFile(bookId);
+    if (!file) return imgs;
+    const pdfjsLib = smart.pdfjs || window.pdfjsLib;
+    if (!pdfjsLib) return imgs;
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    const count = Math.min(maxImages || 4, pageEnd - pageStart + 1);
+    const step = Math.max(1, Math.floor((pageEnd - pageStart + 1) / count));
+    const pages = [];
+    for (let i = 0; i < count && (pageStart + i * step) <= pageEnd; i++) {
+      pages.push(pageStart + i * step);
+    }
+    for (const pageNum of pages) {
+      try {
+        const page = await pdf.getPage(pageNum);
+        const viewport = page.getViewport({ scale: 0.7 });
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.floor(viewport.width);
+        canvas.height = Math.floor(viewport.height);
+        const ctx = canvas.getContext('2d');
+        await page.render({ canvasContext: ctx, viewport }).promise;
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+        if (dataUrl && dataUrl.length > 1000) {
+          imgs.push({ page: pageNum, data: dataUrl });
+        }
+      } catch (e) { /* skip page */ }
+    }
+  } catch (e) { /* extraction failed */ }
+  return imgs;
+}
+
+function renderVisualExplain(images) {
+  const box = $('#explainVisualBox');
+  if (!box || !images || !images.length) { if (box) box.classList.add('hidden'); return; }
+  box.classList.remove('hidden');
+  box.innerHTML = `
+    <div class="flex items-center justify-between mb-2">
+      <span class="text-xs font-bold text-slate-500">🖼️ صفحات الكتاب</span>
+      <button id="visualClose" class="btn-ghost text-xs px-2">✕</button>
+    </div>
+    <div class="flex gap-2 overflow-x-auto pb-2" id="visualScroll">
+      ${images.map((img) => `
+        <div class="flex-shrink-0 rounded-xl border border-slate-200 bg-white overflow-hidden cursor-pointer hover:shadow-lg transition" data-page="${img.page}">
+          <img src="${img.data}" alt="صفحة ${img.page}" class="h-40 object-contain" />
+          <div class="text-center text-[11px] font-bold text-slate-500 py-1 bg-slate-50">صفحة ${img.page}</div>
+        </div>`).join('')}
+    </div>`;
+  $('#visualClose').addEventListener('click', () => box.classList.add('hidden'));
+  box.querySelectorAll('[data-page]').forEach((el) => {
+    el.addEventListener('click', () => {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.add('ring-2', 'ring-brand-500');
+      setTimeout(() => el.classList.remove('ring-2', 'ring-brand-500'), 1500);
+    });
+  });
 }
 
 function showChapterDiagram() {
@@ -742,7 +811,14 @@ function downloadExplainMd() {
   const ch = (b?.chapters || []).find((x) => x.id === state.learn.chapterId);
   const heading = (ch && ch.title) || (b && b.title) || 'explain';
   const title = heading.replace(/[\\/:*?"<>|]+/g, '-');
-  downloadBlob(new Blob(['# ' + heading + '\n\n' + md], { type: 'text/markdown;charset=utf-8' }), title + '.md');
+  let mdContent = '# ' + heading + '\n\n' + md;
+  if (state.explain?.images?.length) {
+    mdContent += '\n\n---\n\n## ' + L().visualExplain + '\n\n';
+    state.explain.images.forEach((img) => {
+      mdContent += `![صفحة ${img.page}](${img.data})\n\n`;
+    });
+  }
+  downloadBlob(new Blob([mdContent], { type: 'text/markdown;charset=utf-8' }), title + '.md');
   toast(L().explainMdSave);
 }
 
@@ -752,9 +828,13 @@ function printExplain() {
   const b = state.books.find((x) => x.id === state.learn.bookId);
   const ch = (b?.chapters || []).find((x) => x.id === state.learn.chapterId);
   const title = ch?.title || b?.title || 'explanation';
+  let printHtml = el.innerHTML;
+  if (state.explain?.images?.length) {
+    printHtml += `<h2>${esc(L().visualExplain)}</h2>` + state.explain.images.map((img) => `<div style="margin:12px 0"><img src="${img.data}" style="max-width:100%;border:1px solid #cbd5e1;border-radius:8px" /><p style="text-align:center;font-size:11px;color:#64748b">صفحة ${img.page}</p></div>`).join('');
+  }
   const w = window.open('', '_blank');
   if (!w) return;
-  w.document.write(`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>${esc(title)}</title><style>body{font-family:Cairo,'Segoe UI',Arial,sans-serif;direction:rtl;line-height:1.8;color:#1e293b;max-width:800px;margin:24px auto;padding:0 16px}h1,h2,h3,h4{color:#312e81}pre{background:#f1f5f9;padding:12px;border-radius:8px;direction:ltr;text-align:left;overflow-x:auto}code{background:#f1f5f9;padding:1px 5px;border-radius:4px}table{border-collapse:collapse;width:100%;margin:8px 0}th,td{border:1px solid #cbd5e1;padding:6px 10px;text-align:right}img{max-width:100%}blockquote{border-right:4px solid #c7d2fe;margin:8px 0;padding:4px 12px;color:#475569}@media print{body{margin:0;padding:0}}</style></head><body><h1>${esc(title)}</h1>${el.innerHTML}<script>window.onload=function(){setTimeout(function(){window.print()},300)}<\/script></body></html>`);
+  w.document.write(`<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>${esc(title)}</title><style>body{font-family:Cairo,'Segoe UI',Arial,sans-serif;direction:rtl;line-height:1.8;color:#1e293b;max-width:800px;margin:24px auto;padding:0 16px}h1,h2,h3,h4{color:#312e81}pre{background:#f1f5f9;padding:12px;border-radius:8px;direction:ltr;text-align:left;overflow-x:auto}code{background:#f1f5f9;padding:1px 5px;border-radius:4px}table{border-collapse:collapse;width:100%;margin:8px 0}th,td{border:1px solid #cbd5e1;padding:6px 10px;text-align:right}img{max-width:100%}blockquote{border-right:4px solid #c7d2fe;margin:8px 0;padding:4px 12px;color:#475569}@media print{body{margin:0;padding:0}}</style></head><body><h1>${esc(title)}</h1>${printHtml}<script>window.onload=function(){setTimeout(function(){window.print()},300)}<\/script></body></html>`);
   w.document.close();
 }
 
@@ -1042,10 +1122,22 @@ function bindLearn() {
     $('#quizBox').classList.add('hidden');
     $('#cardsBox').classList.add('hidden');
     state.explain.md = '';
+    state.explain.images = [];
+    $('#explainVisualBox').classList.add('hidden');
     $('#stopExplainBtn').classList.remove('hidden');
     setStatusChip(L().thinking);
     const style = $('#learnStyle').value;
     const styleInjection = style === '1' ? '\n\nملاحظة: استخدم لغة مبسطة جداً وقصّر الأمثلة.' : style === '2' ? '\n\nملاحظة: ركّز على ما يأتي في الامتحانات والأسئلة المتوقعة.' : '';
+    const visualEl = $('#visualExplain');
+    const wantVisual = !!(visualEl && visualEl.checked);
+    if (wantVisual) {
+      const pr = chapterPageRange();
+      setStatusChip(L().visualExplainShort);
+      extractPdfPagesAsImages(state.learn.bookId, pr.start, pr.end, 3).then((imgs) => {
+        state.explain.images = imgs;
+        renderVisualExplain(imgs);
+      }).catch(() => {});
+    }
     try {
       let full = '';
       await streamApi('/api/explain', {
