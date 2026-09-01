@@ -24,7 +24,7 @@ const LABELS = {
     ttBooksHint: 'لا توجد كتب بعد — ارفع كتب المناهج من تبويب الكتب أولاً',
     ttStatsBooks: 'كتب', ttStatsUnits: 'درساً', ttStatsDays: 'أيام دراسية', ttStatsHours: 'ساعة/أسبوع',
     ttDayAll: 'كل الأيام',
-    lblVisualExplain: 'شرح بالصور من الكتاب', visualExplain: 'شرح مرئي بالصور', visualExplainShort: 'مرئي',
+    lblVisualExplain: 'شرح بالصور من الكتاب', visualExplain: 'شرح مرئي بالصور', visualExplainShort: 'مرئي', pngTitle: 'حفظ الرسم صورة PNG', pngFail: 'تعذّر حفظ الرسم', aiImageBtn: 'توليد صورة AI', aiImageTitle: 'توليد صورة توضيحية فوتوغرافية لهذا المفهوم', aiImageLoading: 'جارٍ توليد الصورة', aiImageFail: 'تعذّر توليد الصورة — تأكد من مفتاح OpenRouter',
     ttsListen: 'استماع للشرح', ttsStop: 'إيقاف', ttsNoText: 'لا يوجد نص للاستماع', ttsUnsupported: 'المتصفح لا يدعم القراءة الصوتية',
     darkOn: 'الوضع الليلي', darkOff: 'الوضع النهاري',
     exportPng: 'حفظ الرسم صورة', printDiagram: 'طباعة الرسم',
@@ -77,7 +77,7 @@ const LABELS = {
     ttBooksHint: 'No books yet — upload your curriculum books first',
     ttStatsBooks: 'books', ttStatsUnits: 'lessons', ttStatsDays: 'study days', ttStatsHours: 'hrs/week',
     ttDayAll: 'Every day',
-    lblVisualExplain: 'Visual explanation with book pages', visualExplain: 'Visual explanation', visualExplainShort: 'Visual',
+    lblVisualExplain: 'Visual explanation with book pages', visualExplain: 'Visual explanation', visualExplainShort: 'Visual', pngTitle: 'Download illustration as PNG', pngFail: 'Could not save image', aiImageBtn: 'Generate AI image', aiImageTitle: 'Generate a photographic illustration for this concept', aiImageLoading: 'Generating image', aiImageFail: 'Could not generate image — check your OpenRouter key',
     ttsListen: 'Listen to explanation', ttsStop: 'Stop', ttsNoText: 'Nothing to read', ttsUnsupported: 'Your browser does not support text-to-speech',
     darkOn: 'Dark mode', darkOff: 'Light mode',
     exportPng: 'Save diagram as image', printDiagram: 'Print diagram',
@@ -122,7 +122,7 @@ let state = {
   examTaking: null,
   examChapters: [],
   chat: { messages: [], controller: null, sending: false },
-  explain: { controller: null, md: '', images: [] },
+  explain: { controller: null, md: '', images: [], aiImages: [] },
   currentResultId: null,
   uploadBusy: false,
 };
@@ -180,8 +180,30 @@ function esc(s) {
 }
 
 function renderMarkdown(src) {
-  const raw = marked.parse(src || '');
-  return DOMPurify.sanitize(raw, { USE_PROFILES: { html: true } });
+  let raw = marked.parse(src || '');
+  raw = raw
+    .replace(/\[FIG:[^\]]*\]([\s\S]*?)\[\/FIG\]/g, (_m, inner) => `<figure class="ai-fig">${inner}</figure>`)
+    .replace(/<svg /g, '<svg ')
+    .replace(/^\s*>?\s*\[FIG:.*$/gm, '')
+    .replace(/^\s*>?\s*\[\/FIG\]\s*$/gm, '');
+  if (window.DOMPurify) {
+    if (!window.__purifyHooked) {
+      window.__purifyHooked = true;
+      DOMPurify.addHook('afterSanitizeAttributes', (node) => {
+        if ((node.tagName === 'IMG' || node.tagName === 'IMAGE' || node.tagName === 'USE') && node.getAttribute('href')) {
+          const h = node.getAttribute('href');
+          if (/^data:image\//.test(h)) node.setAttribute('src', h);
+        }
+      });
+    }
+    return DOMPurify.sanitize(raw, {
+      USE_PROFILES: { html: true, svg: true, svgFilters: true, mathMl: true },
+      ALLOW_DATA_ATTR: true,
+      ADD_TAGS: ['svg', 'g', 'path', 'rect', 'circle', 'ellipse', 'line', 'polyline', 'polygon', 'text', 'tspan', 'defs', 'linearGradient', 'radialGradient', 'stop', 'image', 'foreignObject', 'marker', 'symbol', 'use', 'textPath', 'clipPath', 'mask', 'pattern', 'figure', 'figcaption'],
+      ADD_ATTR: ['viewBox', 'xmlns', 'fill', 'stroke', 'stroke-width', 'stroke-linecap', 'stroke-linejoin', 'd', 'cx', 'cy', 'r', 'x', 'y', 'width', 'height', 'fill-opacity', 'stroke-opacity', 'font-family', 'font-size', 'font-weight', 'text-anchor', 'dominant-baseline', 'opacity', 'transform', 'points', 'x1', 'y1', 'x2', 'y2', 'rx', 'ry', 'preserveAspectRatio', 'clip-path', 'fill-rule', 'stroke-dasharray', 'offset', 'gradientUnits', 'gradientTransform', 'spreadMethod', 'tableValues', 'stop-color', 'stop-opacity', 'href', 'src', 'alt', 'image-rendering'],
+    });
+  }
+  return raw;
 }
 
 /* ---------------- API ---------------- */
@@ -566,6 +588,79 @@ function renderVisualExplain(images) {
   });
 }
 
+/* Convert inline <svg> in the explanation into downloadable PNG images */
+function wireSvgPngButtons(container) {
+  if (!container) return;
+  const svgs = container.querySelectorAll('.md-body svg');
+  svgs.forEach((svg) => {
+    if (svg.closest('.fig-actions')) return;
+    const wrap = document.createElement('div');
+    wrap.className = 'fig-actions flex items-center gap-2 mt-1 mb-3';
+    svg.after(wrap);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'btn-ghost text-xs px-2.5 py-1 rounded-lg';
+    btn.textContent = '⬇️ PNG';
+    btn.title = L().pngTitle;
+    btn.addEventListener('click', () => {
+      try {
+        const clone = svg.cloneNode(true);
+        const vb = (svg.getAttribute('viewBox') || '').split(' ').map(Number);
+        const w = vb[2] || svg.width?.baseVal?.value || 700;
+        const h = vb[3] || svg.height?.baseVal?.value || 300;
+        const data = new XMLSerializer().serializeToString(clone);
+        const svgBlob = new Blob([data], { type: 'image/svg+xml;charset=utf-8' });
+        const url = URL.createObjectURL(svgBlob);
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = w; canvas.height = h;
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, w, h);
+          ctx.drawImage(img, 0, 0, w, h);
+          URL.revokeObjectURL(url);
+          canvas.toBlob((blob) => { if (blob) downloadBlob(blob, 'figure.png'); }, 'image/png');
+        };
+        img.onerror = () => { URL.revokeObjectURL(url); toast(L().pngFail); };
+        img.src = url;
+      } catch (e) { toast(L().pngFail); }
+    });
+    wrap.appendChild(btn);
+    const aiBtn = document.createElement('button');
+    aiBtn.type = 'button';
+    aiBtn.className = 'btn-ghost text-xs px-2.5 py-1 rounded-lg';
+    aiBtn.textContent = '🖼️ ' + L().aiImageBtn;
+    aiBtn.title = L().aiImageTitle;
+    aiBtn.addEventListener('click', async () => {
+      aiBtn.disabled = true;
+      const orig = aiBtn.textContent;
+      aiBtn.textContent = L().aiImageLoading + '...';
+      try {
+        const concept = svg.getAttribute('data-concept') || svg.textContent?.trim().slice(0, 120) || 'مفهوم الفصل';
+        const prompt = state.lang === 'ar'
+          ? 'ارسم صورة توضيحية تعليمية واضحة عن: ' + concept
+          : 'Draw a clear educational illustration about: ' + concept;
+        const r = await apiPost('/api/generate-image', { prompt, lang: state.lang });
+        if (r.error) throw new Error(r.error);
+        const src = r.data ? 'data:' + (r.mime || 'image/webp') + ';base64,' + r.data : r.url;
+        if (!src) throw new Error(L().aiImageFail);
+        if (!state.explain.aiImages) state.explain.aiImages = [];
+        state.explain.aiImages.push({ src, concept: concept.slice(0, 120) });
+        const imgWrap = document.createElement('div');
+        imgWrap.className = 'mt-2 ai-photo rounded-xl overflow-hidden';
+        imgWrap.innerHTML = '<img src="' + src + '" alt="' + esc(concept) + '" class="w-full object-contain border border-slate-200 rounded-xl">';
+        svg.after(imgWrap);
+      } catch (e) {
+        toast(e.message || L().aiImageFail);
+      } finally {
+        aiBtn.disabled = false;
+        aiBtn.textContent = orig;
+      }
+    });
+    wrap.appendChild(aiBtn);
+  });
+}
+
 function showChapterDiagram() {
   if (!state.learn.bookId || !state.learn.chapterId) { toast(L().chooseChapter); return; }
   if (window.DiagramView) window.DiagramView.show(state.learn.bookId, state.learn.chapterId);
@@ -818,6 +913,12 @@ function downloadExplainMd() {
       mdContent += `![صفحة ${img.page}](${img.data})\n\n`;
     });
   }
+  if (state.explain?.aiImages?.length) {
+    mdContent += '\n\n---\n\n## 🖼️ ' + L().aiImageBtn + '\n\n';
+    state.explain.aiImages.forEach((im) => {
+      mdContent += `![${im.concept}](${im.src})\n\n`;
+    });
+  }
   downloadBlob(new Blob([mdContent], { type: 'text/markdown;charset=utf-8' }), title + '.md');
   toast(L().explainMdSave);
 }
@@ -831,6 +932,9 @@ function printExplain() {
   let printHtml = el.innerHTML;
   if (state.explain?.images?.length) {
     printHtml += `<h2>${esc(L().visualExplain)}</h2>` + state.explain.images.map((img) => `<div style="margin:12px 0"><img src="${img.data}" style="max-width:100%;border:1px solid #cbd5e1;border-radius:8px" /><p style="text-align:center;font-size:11px;color:#64748b">صفحة ${img.page}</p></div>`).join('');
+  }
+  if (state.explain?.aiImages?.length) {
+    printHtml += `<h2>🖼️ ${esc(L().aiImageBtn)}</h2>` + state.explain.aiImages.map((im) => `<div style="margin:12px 0"><img src="${im.src}" style="max-width:100%;border:1px solid #cbd5e1;border-radius:8px" /><p style="text-align:center;font-size:11px;color:#64748b">${esc(im.concept)}</p></div>`).join('');
   }
   const w = window.open('', '_blank');
   if (!w) return;
@@ -1128,8 +1232,9 @@ function bindLearn() {
     setStatusChip(L().thinking);
     const style = $('#learnStyle').value;
     const styleInjection = style === '1' ? '\n\nملاحظة: استخدم لغة مبسطة جداً وقصّر الأمثلة.' : style === '2' ? '\n\nملاحظة: ركّز على ما يأتي في الامتحانات والأسئلة المتوقعة.' : '';
-    const visualEl = $('#visualExplain');
+      const visualEl = $('#visualExplain');
     const wantVisual = !!(visualEl && visualEl.checked);
+    const visualize = wantVisual;
     if (wantVisual) {
       const pr = chapterPageRange();
       setStatusChip(L().visualExplainShort);
@@ -1141,7 +1246,7 @@ function bindLearn() {
     try {
       let full = '';
       await streamApi('/api/explain', {
-        bookId: state.learn.bookId, chapterId: state.learn.chapterId, lang: state.lang,
+        bookId: state.learn.bookId, chapterId: state.learn.chapterId, lang: state.lang, visualize,
       }, {
         signal: controller.signal,
         onChunk: (t) => {
@@ -1152,6 +1257,7 @@ function bindLearn() {
         onDone: () => {
           clearStatusChip();
           $('#stopExplainBtn').classList.add('hidden');
+          wireSvgPngButtons($('#explainContent'));
         },
       });
     } catch (e) {

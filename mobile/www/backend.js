@@ -102,8 +102,7 @@ async function idbClear(store) {
   });
 }
 
-function base64ToBlob(b64, type = 'application/octet-stream') {
-  try {
+function base64ToBlob(b64, type = 'application/octet-stream') {  try {
     const bin = atob(b64);
     const bytes = new Uint8Array(bin.length);
     for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
@@ -332,6 +331,49 @@ async function* streamChat(msgs, { temperature = 0.4, maxTokens = 8000, model } 
   }
 }
 
+/* ==================== AI IMAGE GENERATION (OpenRouter) ==================== */
+async function generateImageHandler(body) {
+  const { prompt, lang } = body || {};
+  if (!prompt || !String(prompt).trim()) return { status: 400, error: 'أدخل وصفاً لتوليد الصورة.' };
+  const cfg = await currentConfig();
+  if (cfg.provider !== 'openrouter') {
+    return { status: 400, error: 'توليد الصور متاح حالياً عبر OpenRouter فقط. بدّل المزوّد من الإعدادات.' };
+  }
+  if (!cfg.key) return { status: 400, error: 'أضف مفتاح OpenRouter أولاً من الإعدادات.' };
+  const MODEL = 'google/gemini-2.5-flash'; // text->image capable model; adjust as needed
+  let imageUrl = null;
+  let base64 = null;
+  let mime = 'image/webp';
+  try {
+    const res = await fetch('https://openrouter.ai/api/v1/images/generations', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + cfg.key,
+        'HTTP-Referer': 'https://smart-tutor.app',
+        'X-Title': 'Smart Tutor',
+      },
+      body: JSON.stringify({ model: MODEL, prompt: String(prompt).slice(0, 800) }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      const item = data?.data?.[0];
+      if (item) {
+        if (item.url) imageUrl = item.url;
+        base64 = item.b64_json || item.data || null;
+        if (base64) mime = item.mime_type || 'image/webp';
+      }
+    } else {
+      const d = await res.json().catch(() => ({}));
+      return { status: 502, error: d?.error?.message || 'فشل توليد الصورة (' + res.status + ') — قد لا يدعم مفتاحك موديلات الصور.' };
+    }
+  } catch (e) {
+    return { status: 502, error: String(e?.message || e) };
+  }
+  if (!imageUrl && !base64) return { status: 502, error: 'الموديل لم يرجع صورة.' };
+  return { url: imageUrl, data: base64, mime };
+}
+
 /* ==================== PDF LAYER ==================== */
 function extractPdf(buffer, opts = {}) {
   const maxPages = opts.maxPages || 0;
@@ -520,11 +562,16 @@ function systemTeacher(lang) {
   };
 }
 
-function explainMessages({ bookTitle, chapterTitle, chapterText, lang }) {
+function explainMessages({ bookTitle, chapterTitle, chapterText, lang, visualize }) {
+  const visualInjection = visualize
+    ? (lang === 'ar'
+      ? '\n\n**مهم (شرح مصوّر):** داخل الشرح ادمج رسوماً توضيحية مولّدة كـ SVG نقي (مخططات انسيابية flowcharts، جداول مقارنة tables، رسوم بيانية charts، خرائط ذهنية mind maps، مخططات مراحل) في المواضع المهمة. أكتب كل رسم داخل كتلة خاصة بصيغة:\n\n[FIG:LABEL:عنوان الرسم]\n<svg width="700" height="300" xmlns="http://www.w3.org/2000/svg"> ... نص SVG ... </svg>\n[/FIG]\n\nالشروط:\n- كل رسم SVG نقي بدون <script>، بدون href خارجي، بدون أحرف عربية عشوائية (استخدم نصوص واضحة)، مع ألوان تمييزية مناسبة.\n- اجعل كل SVG بعرض كامل `width="700"` وارتفاع مناسب `height="..."`، مع تعليق `<text>` داخل الرسم لشرح الأجزاء.\n- أدخل 2-4 رسومات موزعة على الفصل حيث تفيد، وليس بعد كل جملة.\n- القوانين تبقى LaTeX داخل النص، والرسم يوضّع فقط ما يُبَصِّر.\n- كل رسم يعقبها شرح قصير نصي يربط الرسم بالمفهوم.'
+      : '\n\n**Important (visual explanation):** Inside the explanation, embed AI-generated illustrations as pure SVG (flowcharts, comparison tables, charts, mind maps, stage/phase diagrams) at the important points. Write each drawing inside a dedicated block:\n\n[FIG:LABEL:drawing title]\n<svg width="700" height="300" xmlns="http://www.w3.org/2000/svg"> ... SVG content ... </svg>\n[/FIG]\n\nRules:\n- Each SVG is pure (no <script>, no external href, clear readable text), with suitable accent colors.\n- Make each SVG full-width `width="700"` with an appropriate `height`, and include `<text>` labels inside the drawing.\n- Insert 2-4 drawings spread across the chapter where useful, not after every sentence.\n- Formulas stay as LaTeX in the body text; the drawing only visualizes what helps.\n- Each drawing is followed by a short textual explanation linking it to the concept.')
+    : '';
   const user =
     lang === 'ar'
-      ? `اشرح هذا الفصل شرحاً مفصّلاً على مستوى الطالب: ضع له عناوين واضحة، اكتب القوانين أو المعادلات أو القواعد بصيغة LaTeX إن وُجدت، أعط أمثلة محلولة من الكتاب أو تطبيقات عملية، واذكر الأخطاء الشائعة.\n\n**الكتاب:** ${bookTitle}\n**الفصل:** ${chapterTitle}\n\n**نص الفصل من الكتاب:**\n${chapterText}`
-      : `Explain this chapter in detail at a student level. Use clear headings, write any laws, equations, or rules in LaTeX where they exist, give worked examples from the book or practical applications, and mention common mistakes.\n\n**Book:** ${bookTitle}\n**Chapter:** ${chapterTitle}\n\n**Chapter text from the book:**\n${chapterText}`;
+      ? `اشرح هذا الفصل شرحاً مفصّلاً على مستوى الطالب: ضع له عناوين واضحة، اكتب القوانين أو المعادلات أو القواعد بصيغة LaTeX إن وُجدت، أعط أمثلة محلولة من الكتاب أو تطبيقات عملية، واذكر الأخطاء الشائعة.${visualInjection}\n\n**الكتاب:** ${bookTitle}\n**الفصل:** ${chapterTitle}\n\n**نص الفصل من الكتاب:**\n${chapterText}`
+      : `Explain this chapter in detail at a student level. Use clear headings, write any laws, equations, or rules in LaTeX where they exist, give worked examples from the book or practical applications, and mention common mistakes.${visualInjection}\n\n**Book:** ${bookTitle}\n**Chapter:** ${chapterTitle}\n\n**Chapter text from the book:**\n${chapterText}`;
   return [systemTeacher(lang), { role: 'user', content: user }];
 }
 
@@ -1286,6 +1333,10 @@ async function handleApi(method, pathname, init) {
     const body = (await readJsonBody(init)) || {};
     return jsonResponse(timetableHandler(body));
   }
+  if (pathname === '/api/generate-image' && method === 'POST') {
+    const body = (await readJsonBody(init)) || {};
+    return jsonResponse(generateImageHandler(body));
+  }
 
   // ---------- exams ----------
   if (pathname === '/api/exams') {
@@ -1464,7 +1515,7 @@ async function* uploadBookStream(file, title, maxPages) {
 
 /* ==================== EXPLAIN / CHAT / SUMMARIZE ==================== */
 async function* explainStream(body) {
-  const { bookId, chapterId, lang } = body;
+  const { bookId, chapterId, lang, visualize } = body;
   const book = await getBook(bookId);
   const chapter = await getChapterById(book, chapterId);
   if (!book || !chapter) { yield { type: 'error', error: 'الفصل أو الكتاب غير موجود' }; return; }
@@ -1475,7 +1526,7 @@ async function* explainStream(body) {
     yield { type: 'error', error: 'لا يوجد نص مستخرج لهذا الفصل. أعد رفع الكتاب دون تحديد حد أقصى لعدد الصفحات.' };
     return;
   }
-  const msgs = explainMessages({ bookTitle: book.title, chapterTitle: chapter.title, chapterText: text, lang });
+  const msgs = explainMessages({ bookTitle: book.title, chapterTitle: chapter.title, chapterText: text, lang, visualize: !!visualize });
   for await (const chunk of streamChat(msgs)) {
     yield { type: 'chunk', text: chunk };
   }
