@@ -55,7 +55,7 @@ const LABELS = {
     emptyAnswer: 'اكتب إجابة أو اختر خياراً قبل التسليم',
     deleteConfirm: 'متأكد من الحذف؟', examNewCreated: 'تم إنشاؤه', noKeyNote: 'يرجى إضافة مفتاح API في الإعدادات أولاً',
     progressGrading: 'جاري تصحيح الامتحان...', progressQuestion: 'السؤال', progressAnalysis: 'جاري تحليل نقاط الضعف...',
-    progressError: 'خطأ أثناء التصحيح', progressDone: 'تم التصحيح بالكامل',
+    gradeProgressError: 'خطأ أثناء التصحيح', gradeProgressDone: 'تم التصحيح بالكامل',
   },
   en: {
     tagline: 'Upload your book, learn it, and test yourself with AI',
@@ -110,7 +110,7 @@ const LABELS = {
     emptyAnswer: 'Write an answer or choose an option before submitting',
     deleteConfirm: 'Delete?', examNewCreated: 'Created', noKeyNote: 'Please add an API key in Settings first',
     progressGrading: 'Grading exam...', progressQuestion: 'Question', progressAnalysis: 'Analyzing weak topics...',
-    progressError: 'Grading error', progressDone: 'Grading complete',
+    gradeProgressError: 'Grading error', gradeProgressDone: 'Grading complete',
   },
 };
 
@@ -258,11 +258,15 @@ async function streamApi(path, body, { onEvent, onChunk, onDone, onError, signal
       if (payload === '[DONE]') continue;
       try {
         const obj = JSON.parse(payload);
+        if (obj.type === 'error') throw new Error(obj.error || 'خطأ');
         if (onEvent) { onEvent(obj); continue; }
         if (obj.type === 'chunk') onChunk?.(obj.text || '');
         else if (obj.type === 'done') onDone?.();
-        else if (obj.type === 'error') throw new Error(obj.error || 'خطأ');
-      } catch (e) { if (e?.message && e.message !== 'خطأ') { onError?.(e.message); return; } }
+      } catch (e) {
+        if (!e?.message || e.message === 'خطأ') { continue; }
+        if (onError) { onError(e.message); return; }
+        throw e;
+      }
     }
   }
   onDone?.();
@@ -1555,12 +1559,12 @@ function renderExamTaking() {
           } else if (obj.type === 'result') {
             result = obj.result;
           } else if (obj.type === 'error') {
-            throw new Error(obj.error || l.progressError);
+            throw new Error(obj.error || l.gradeProgressError);
           }
         },
       });
-      if (!result) throw new Error(l.progressError);
-      progressUpdate(100, l.progressDone);
+      if (!result) throw new Error(l.gradeProgressError);
+      progressUpdate(100, l.gradeProgressDone);
       setTimeout(() => progressOff(), 450);
       state.results.unshift(result);
       renderResultsView();
