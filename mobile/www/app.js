@@ -664,7 +664,7 @@ function wireSvgPngButtons(container) {
         if (aspect) body.aspect = aspect;
         const r = await apiPost('/api/generate-image', body);
         if (r.error) throw new Error(r.error);
-        if (r.fallback) toast('🆓 صورة مجانية (Pollinations) — لإظهار أفضل أضف رصيداً لمفتاح OpenRouter');
+        if (r.paid) toast('🖼️ استُخدمت الخدمة المدفوعة الاحتياطية (OpenRouter) — الخدمة المجانية مشغولة حالياً');
         const src = r.data ? 'data:' + (r.mime || 'image/png') + ';base64,' + r.data : r.url;
         if (!src) throw new Error(L().aiImageFail);
         if (!state.explain.aiImages) state.explain.aiImages = [];

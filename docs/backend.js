@@ -381,7 +381,16 @@ async function generateImageHandler(body) {
   const p = String(prompt).slice(0, 800);
   const ratio = String(body.aspect || '').trim();
 
-  let result = null;
+  let freeErr = null;
+  try {
+    const free = await generateViaPollinations(p, ratio);
+    free.free = true;
+    return free;
+  } catch (e) {
+    freeErr = String(e?.message || e);
+  }
+
+  let paid = null;
   if (cfg.provider === 'openrouter' && cfg.key) {
     const extras = { resolution: '1K' };
     if (IMAGE_ASPECTS.has(ratio)) extras.aspect_ratio = ratio;
@@ -408,30 +417,23 @@ async function generateImageHandler(body) {
               ? { url: raw, data: null, mime: '' }
               : { url: item?.url || null, data: raw, mime: item?.media_type || item?.mime_type || 'image/png' };
           }
-          result = { status: 502, error: 'الموديل لم يرجع صورة.' };
+          paid = { status: 502, error: 'الموديل لم يرجع صورة.' };
           continue;
         }
         const d = await res.json().catch(() => ({}));
-        result = { status: 502, error: d?.error?.message || ('فشل توليد الصورة (' + res.status + ')') };
+        paid = { status: 502, error: d?.error?.message || ('فشل توليد الصورة (' + res.status + ')') };
         if (d?.error?.code === 402) break;
       } catch (e) {
-        result = { status: 502, error: String(e?.message || e) };
+        paid = { status: 502, error: String(e?.message || e) };
       }
     }
   }
 
-  try {
-    const fb = await generateViaPollinations(p, ratio);
-    fb.fallback = true;
-    return fb;
-  } catch (e) {
-    const msg = String(e?.message || e);
-    return {
-      status: 502,
-      error: (result?.error || 'فشل توليد الصورة.')
-        + (msg.includes('pollinations') ? ' | ' + msg : ''),
-    };
-  }
+  return {
+    status: 502,
+    error: (paid?.error || 'فشل توليد الصورة.')
+      + (freeErr && freeErr.includes('pollinations') ? ' | ' + freeErr : ''),
+  };
 }
 
 /* ==================== PDF LAYER ==================== */
