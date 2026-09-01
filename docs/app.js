@@ -656,12 +656,15 @@ function wireSvgPngButtons(container) {
           aspect = r >= 2 ? '2:1' : r >= 1.6 ? '16:9' : r >= 1.26 ? '3:2' : r >= 1.02 ? '4:3' : r >= 0.82 ? '1:1' : r >= 0.62 ? '3:4' : r >= 0.48 ? '2:3' : '1:2';
         }
         const body = {
-          prompt: (state.lang === 'ar' ? 'ارسم صورة توضيحية تعليمية واضحة عن: ' : 'Draw a clear educational illustration about: ') + concept,
+          prompt: (state.lang === 'ar'
+            ? 'أنشئ صورة توضيحية تعليمية عالية الجودة ومكتملة الحواف، بأسلوب رسومي نظيف وملوّن ومفصّل يكمل إطار الصورة بالكامل. بدون أي نصوص أو حروف أو أرقام أو علامات مائية في أي لغة. الموضوع: '
+            : 'Create a high-quality, complete, full-frame educational illustration, in a clean colorful detailed style that fills the whole frame. NO text, NO letters, NO numbers, NO watermark in any language. Theme: ') + concept,
           lang: state.lang,
         };
         if (aspect) body.aspect = aspect;
         const r = await apiPost('/api/generate-image', body);
         if (r.error) throw new Error(r.error);
+        if (r.fallback) toast('🆓 صورة مجانية (Pollinations) — لإظهار أفضل أضف رصيداً لمفتاح OpenRouter');
         const src = r.data ? 'data:' + (r.mime || 'image/png') + ';base64,' + r.data : r.url;
         if (!src) throw new Error(L().aiImageFail);
         if (!state.explain.aiImages) state.explain.aiImages = [];

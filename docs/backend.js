@@ -331,52 +331,107 @@ async function* streamChat(msgs, { temperature = 0.4, maxTokens = 8000, model } 
   }
 }
 
-/* ==================== AI IMAGE GENERATION (OpenRouter) ==================== */
+/* ==================== AI IMAGE GENERATION ==================== */
 const IMAGE_ENDPOINT = 'https://openrouter.ai/api/v1/images';
-const IMAGE_MODELS = ['google/gemini-2.5-flash-image', 'bytedance-seed/seedream-4.5'];
+const IMAGE_MODELS = ['bytedance-seed/seedream-4.5', 'qwen/qwen-image-3', 'google/gemini-3.1-flash-lite-image'];
 const IMAGE_ASPECTS = new Set(['1:1','1:2','1:4','1:8','2:1','2:3','3:2','3:4','4:1','4:3','4:5','5:4','8:1','9:16','16:9','9:19.5','19.5:9','9:20','20:9','9:21','21:9']);
+
+function pollinationsDims(aspect) {
+  const m = /^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/.exec(String(aspect || '').trim());
+  let w = 4, h = 3;
+  if (m) {
+    w = parseFloat(m[1]);
+    h = parseFloat(m[2]);
+  }
+  let W, H;
+  if (w >= h) {
+    W = 1024;
+    H = Math.max(384, Math.round(1024 * h / w));
+  } else {
+    H = 1024;
+    W = Math.max(384, Math.round(1024 * w / h));
+  }
+  if (W % 2) W++;
+  if (H % 2) H++;
+  return { w: W, h: H };
+}
+
+async function generateViaPollinations(promptText, aspect) {
+  const { w, h } = pollinationsDims(aspect);
+  const seed = Math.floor(Math.random() * 1e9);
+  const url = 'https://image.pollinations.ai/prompt/' + encodeURIComponent(String(promptText).slice(0, 600))
+    + '?width=' + w + '&height=' + h + '&nologo=true&model=flux&seed=' + seed;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 24000);
+  try {
+    const res = await fetch(url, { signal: ctrl.signal });
+    const ct = String(res.headers.get('content-type') || '');
+    if (!res.ok || !ct.startsWith('image/')) throw new Error('خدمة الصور المجانية مشغولة (' + res.status + ').');
+    const b64 = await blobToBase64(await res.blob());
+    return { url: null, data: b64, mime: ct, source: 'pollinations' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 async function generateImageHandler(body) {
   const { prompt, lang } = body || {};
   if (!prompt || !String(prompt).trim()) return { status: 400, error: 'أدخل وصفاً لتوليد الصورة.' };
   const cfg = await currentConfig();
-  if (cfg.provider !== 'openrouter') {
-    return { status: 400, error: 'توليد الصور متاح حالياً عبر OpenRouter فقط. بدّل المزوّد من الإعدادات.' };
-  }
-  if (!cfg.key) return { status: 400, error: 'أضف مفتاح OpenRouter أولاً من الإعدادات.' };
   const p = String(prompt).slice(0, 800);
-  const extras = {};
   const ratio = String(body.aspect || '').trim();
-  if (IMAGE_ASPECTS.has(ratio)) extras.aspect_ratio = ratio;
-  const headers = {
-    'Content-Type': 'application/json',
-    Authorization: 'Bearer ' + cfg.key,
-    'HTTP-Referer': 'https://smart-tutor.app',
-    'X-Title': 'Smart Tutor',
-  };
-  let lastErr = null;
-  for (const model of IMAGE_MODELS) {
-    try {
-      const res = await fetch(IMAGE_ENDPOINT, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ model, prompt: p, ...extras }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        const item = data?.data?.[0];
-        const b64 = item?.b64_json || item?.data || null;
-        if (b64) return { url: item?.url || null, data: b64, mime: item?.media_type || item?.mime_type || 'image/png' };
-        lastErr = 'الموديل لم يرجع صورة.';
-        continue;
+
+  let result = null;
+  if (cfg.provider === 'openrouter' && cfg.key) {
+    const extras = { resolution: '1K' };
+    if (IMAGE_ASPECTS.has(ratio)) extras.aspect_ratio = ratio;
+    const headers = {
+      'Content-Type': 'application/json',
+      Authorization: 'Bearer ' + cfg.key,
+      'HTTP-Referer': 'https://smart-tutor.app',
+      'X-Title': 'Smart Tutor',
+    };
+    for (const model of IMAGE_MODELS) {
+      try {
+        const res = await fetch(IMAGE_ENDPOINT, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ model, prompt: p, ...extras }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const item = data?.data?.[0];
+          const raw = item?.b64_json || item?.data || null;
+          if (raw) {
+            const prefixed = /^data:image\//.test(raw);
+            return prefixed
+              ? { url: raw, data: null, mime: '' }
+              : { url: item?.url || null, data: raw, mime: item?.media_type || item?.mime_type || 'image/png' };
+          }
+          result = { status: 502, error: 'الموديل لم يرجع صورة.' };
+          continue;
+        }
+        const d = await res.json().catch(() => ({}));
+        result = { status: 502, error: d?.error?.message || ('فشل توليد الصورة (' + res.status + ')') };
+        if (d?.error?.code === 402) break;
+      } catch (e) {
+        result = { status: 502, error: String(e?.message || e) };
       }
-      const d = await res.json().catch(() => ({}));
-      lastErr = d?.error?.message || ('فشل توليد الصورة (' + res.status + ')');
-    } catch (e) {
-      lastErr = String(e?.message || e);
     }
   }
-  return { status: 502, error: lastErr || 'فشل توليد الصورة — قد لا يدعم مفتاحك موديلات الصور.' };
+
+  try {
+    const fb = await generateViaPollinations(p, ratio);
+    fb.fallback = true;
+    return fb;
+  } catch (e) {
+    const msg = String(e?.message || e);
+    return {
+      status: 502,
+      error: (result?.error || 'فشل توليد الصورة.')
+        + (msg.includes('pollinations') ? ' | ' + msg : ''),
+    };
+  }
 }
 
 /* ==================== PDF LAYER ==================== */
