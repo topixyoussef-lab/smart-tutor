@@ -339,7 +339,7 @@ const IMAGE_MODELS = ['bytedance-seed/seedream-4.5', 'qwen/qwen-image-3', 'googl
 const IMAGE_ASPECTS = new Set(['1:1','1:2','1:4','1:8','2:1','2:3','3:2','3:4','4:1','4:3','4:5','5:4','8:1','9:16','16:9','9:19.5','19.5:9','9:20','20:9','9:21','21:9']);
 const POLLI_MODELS = ['zimage', 'flux', 'turbo', 'klein'];
 const POLLI_MODELS_KEY = ['nanobanana', 'seedream', 'kontext', 'zimage', 'flux', 'turbo', 'klein'];
-const GEMINI_IMG_MODELS = ['gemini-2.5-flash-image', 'gemini-3.0-nano-banana'];
+const GEMINI_IMG_MODELS = ['gemini-2.5-flash-image', 'gemini-3.1-flash-image', 'gemini-3-pro-image', 'nano-banana-pro-preview'];
 const GEMINI_ASPECTS = new Set(['1:1','2:3','3:2','3:4','4:3','4:5','5:4','9:16','16:9','9:21','21:9']);
 
 function geminiAspect(ratio) {
@@ -442,6 +442,7 @@ async function generateViaGemini(theme, aspect, key) {
       if (!res.ok) {
         const d = await res.json().catch(() => ({}));
         lastErr = String(d?.error?.message || ('فشل Gemini (' + res.status + ')'));
+        if (res.status === 429) break;
         continue;
       }
       const data = await res.json();
