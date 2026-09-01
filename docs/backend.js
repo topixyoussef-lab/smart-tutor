@@ -565,36 +565,40 @@ function systemTeacher(lang) {
 function explainMessages({ bookTitle, chapterTitle, chapterText, lang, visualize }) {
   const visualInjection = visualize
     ? (lang === 'ar'
-      ? '\n\n**إلزامي — ادمج رسوماً توضيحية (شرح مصوّر):** يجب أن تُنتج 2–4 رسوماً توضيحية SVG نقي داخل الشرح (مخطط انسيابي flowchart، جدول مقارنة، رسم بياني، خريطة ذهنية، أو مخطط مراحل) في المواضع المهمة، وليس بعد كل جملة. اكتب **كل** رسم داخل كتلة مخصوصة بهذا الشكل الحرفي (سطر `[FIG` ثم سطر `<svg...` ثم سطر `[/FIG]`):
-
-[FIG:flow:عنوان الرسم]
-<svg width="700" height="300" xmlns="http://www.w3.org/2000/svg">
-<!-- عناصر الشكل هنا: مستطيلات rect ودوائر circle وأسهم line/text -->
-</svg>
-[/FIG]
-
-قواعد صارمة:
-- كل رسم SVG نقي فقط: `<svg>`, `<rect>`, `<circle>`, `<ellipse>`, `<line>`, `<polyline>`, `<polygon>`, `<text>`, `<tspan>`, `<path>`, `<defs>`/`<linearGradient>`. ممنوع `<script>` وممنوع أي `href` خارجي وممنوع `foreignObject`.
-- اللون النصي داخل الرسم بدرجة داكنة مقروءة، والخلفية بيضاء `#ffffff`.
-- العرض كامل `width="700"` والارتفاع مناسب `height="300"~"500"`.
-- لا تكتب أحرفاً عربية عشوائية داخل `<text>`؛ استخدم نصوصاً قصيرة واضحة (حسب لغة الشرح).
-- افتح الرسم بـ `<svg` ثم أغلق بـ `</svg>` في نفس الكتلة، قبل `[/FIG]` مباشرة.
-- بعد كل رسم، اكتب جملة واحدة تربط الرسم بالمفهوم.'
-      : '\n\n**MANDATORY — embed visual SVG illustrations (visual explanation):** You MUST produce 2–4 pure-SVG illustrations inside the explanation (a flowchart, comparison table, chart, mind map, or stage diagram) at the important points, not after every sentence. Write **each** drawing inside a dedicated block exactly like this (a `[FIG` line, then a `<svg...` line, then a `[/FIG]` line):
-
-[FIG:flow:drawing title]
-<svg width="700" height="300" xmlns="http://www.w3.org/2000/svg">
-<!-- elements here: rect, circle, line/text -->
-</svg>
-[/FIG]
-
-Strict rules:
-- Pure SVG elements only: `<svg>`, `<rect>`, `<circle>`, `<ellipse>`, `<line>`, `<polyline>`, `<polygon>`, `<text>`, `<tspan>`, `<path>`, `<defs>`/`<linearGradient>`. No `<script>`, no external `href`, no `foreignObject`.
-- Dark legible text color on a white `#ffffff` background.
-- Full width `width="700"` and suitable `height="300"~"500"`.
-- Do not put random Arabic glyphs inside `<text>`; use short clear labels (in the explanation language).
-- Open with `<svg` and close with `</svg>` inside the block, right before `[/FIG]`.
-- After each drawing, write ONE sentence linking the drawing to the concept.')
+      ? [
+          '\n\n**إلزامي — ادمج رسوماً توضيحية (شرح مصوّر):** يجب أن تُنتج 2–4 رسوماً توضيحية SVG نقي داخل الشرح (مخطط انسيابي flowchart، جدول مقارنة، رسم بياني، خريطة ذهنية، أو مخطط مراحل) في المواضع المهمة، وليس بعد كل جملة. اكتب **كل** رسم داخل كتلة مخصوصة بهذا الشكل الحرفي (سطر `[FIG` ثم سطر `<svg...` ثم سطر `[/FIG]`):',
+          '',
+          '[FIG:flow:عنوان الرسم]',
+          '<svg width="700" height="300" xmlns="http://www.w3.org/2000/svg">',
+          '<!-- عناصر الشكل هنا: مستطيلات rect ودوائر circle وأسهم line/text -->',
+          '</svg>',
+          '[/FIG]',
+          '',
+          'قواعد صارمة:',
+          '- كل رسم SVG نقي فقط: `<svg>`, `<rect>`, `<circle>`, `<ellipse>`, `<line>`, `<polyline>`, `<polygon>`, `<text>`, `<tspan>`, `<path>`, `<defs>`/`<linearGradient>`. ممنوع `<script>` وممنوع أي `href` خارجي وممنوع `foreignObject`.',
+          '- اللون النصي داخل الرسم بدرجة داكنة مقروءة، والخلفية بيضاء `#ffffff`.',
+          '- العرض كامل `width="700"` والارتفاع مناسب `height="300"~"500"`.',
+          '- لا تكتب أحرفاً عربية عشوائية داخل `<text>`؛ استخدم نصوصاً قصيرة واضحة (حسب لغة الشرح).',
+          '- افتح الرسم بـ `<svg` ثم أغلق بـ `</svg>` في نفس الكتلة، قبل `[/FIG]` مباشرة.',
+          '- بعد كل رسم، اكتب جملة واحدة تربط الرسم بالمفهوم.'
+        ].join('\n')
+      : [
+          '\n\n**MANDATORY — embed visual SVG illustrations (visual explanation):** You MUST produce 2–4 pure-SVG illustrations inside the explanation (a flowchart, comparison table, chart, mind map, or stage diagram) at the important points, not after every sentence. Write **each** drawing inside a dedicated block exactly like this (a `[FIG` line, then a `<svg...` line, then a `[/FIG]` line):',
+          '',
+          '[FIG:flow:drawing title]',
+          '<svg width="700" height="300" xmlns="http://www.w3.org/2000/svg">',
+          '<!-- elements here: rect, circle, line/text -->',
+          '</svg>',
+          '[/FIG]',
+          '',
+          'Strict rules:',
+          '- Pure SVG elements only: `<svg>`, `<rect>`, `<circle>`, `<ellipse>`, `<line>`, `<polyline>`, `<polygon>`, `<text>`, `<tspan>`, `<path>`, `<defs>`/`<linearGradient>`. No `<script>`, no external `href`, no `foreignObject`.',
+          '- Dark legible text color on a white `#ffffff` background.',
+          '- Full width `width="700"` and suitable `height="300"~"500"`.',
+          '- Do not put random Arabic glyphs inside `<text>`; use short clear labels (in the explanation language).',
+          '- Open with `<svg` and close with `</svg>` inside the block, right before `[/FIG]`.',
+          '- After each drawing, write ONE sentence linking the drawing to the concept.'
+        ].join('\n'))
     : '';
   const user =
     lang === 'ar'
