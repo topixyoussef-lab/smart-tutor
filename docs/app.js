@@ -32,7 +32,6 @@ const LABELS = {
     askFollowUp: 'اسأل عن هذا الفصل', newExam: 'امتحان جديد', myExams: 'الامتحانات',
     pdfPaneTitle: '📄 صفحات الكتاب',
     pdfShow: '📄 صفحات الكتاب', pdfHide: 'إخفاء صفحات الكتاب', pdfRangeHint: 'صفحات الفصل:',
-    splitHalf: '⊞ نصفين', splitFull: '⊟ كامل', splitTitle: 'تقسيم العرض: الشرح والصفحة جنب بعض', splitTitleOff: 'إلغاء التقسيم: الشرح بعرض كامل',
     panePdfTab: '📄 صفحات الكتاب', paneDiagramTab: '🌐 الرسم والمخططات', diagramTitle: 'Visual/Diagram-based Explanation — الشرح باستخدام الرسوم والمخططات (Flowchart)',
     diagramThinking: 'جاري رسم مخطط الفصل...', diagramNoApi: 'أضف مفتاح API من الإعدادات أولاً',
     lvEasy: 'سهل', lvMedium: 'متوسط', lvHard: 'صعب',
@@ -86,7 +85,6 @@ const LABELS = {
     askFollowUp: 'Ask about this chapter', newExam: 'New exam', myExams: 'My exams',
     pdfPaneTitle: '📄 Book pages',
     pdfShow: '📄 Book pages', pdfHide: 'Hide book pages', pdfRangeHint: 'Chapter pages:',
-    splitHalf: '⊞ Split', splitFull: '⊟ Full', splitTitle: 'Split view: explanation and page side-by-side', splitTitleOff: 'Exit split view: full width explanation',
     panePdfTab: '📄 Book pages', paneDiagramTab: '🌐 Diagram', diagramTitle: 'Visual/Diagram-based Explanation — الشرح باستخدام الرسوم والمخططات (Flowchart)',
     diagramThinking: 'Drawing the chapter flowchart...', diagramNoApi: 'Add an API key in Settings first',
     lvEasy: 'Easy', lvMedium: 'Medium', lvHard: 'Hard',
@@ -121,7 +119,6 @@ let state = {
   weakTopics: [],
   currentTab: 'library',
   learn: { bookId: null, chapterId: null },
-  splitMode: false,
   examTaking: null,
   examChapters: [],
   chat: { messages: [], controller: null, sending: false },
@@ -518,26 +515,9 @@ function updatePdfToggleUI() {
   if (hint) hint.textContent = pr ? L().pdfRangeHint + ' ' + pr.start + '–' + pr.end : '';
 }
 
-function setSplitMode(on) {
-  state.splitMode = !!on;
-  const layout = $('#learnLayout');
-  const btn = $('#explainSplitBtn');
-  if (layout) {
-    layout.classList.toggle('lg:grid-cols-2', state.splitMode);
-    layout.classList.toggle('lg:grid-cols-1', !state.splitMode);
-  }
-  if (btn) {
-    btn.classList.toggle('btn-primary', state.splitMode);
-    btn.classList.toggle('btn-ghost', !state.splitMode);
-    btn.textContent = state.splitMode ? '⊟' : '⊞';
-    btn.title = state.splitMode ? L().splitTitleOff : L().splitTitle;
-  }
-}
-
 function showChapterPdf() {
   const pr = chapterPageRange();
   if (pr && window.PdfViewer) {
-    setSplitMode(true);
     window.PdfViewer.show(state.learn.bookId, pr.start, pr.end);
     updatePdfToggleUI();
   }
@@ -1214,7 +1194,6 @@ function bindLearn() {
   $('#learnChapter').addEventListener('change', (e) => {
     state.learn.chapterId = e.target.value;
     if (window.PdfViewer) window.PdfViewer.clear();
-    setSplitMode(false);
     updatePdfToggleUI();
   });
 
@@ -1222,20 +1201,6 @@ function bindLearn() {
     const pane = $('#pdfPane');
     if (pane && !pane.classList.contains('hidden')) {
       if (window.PdfViewer) window.PdfViewer.clear();
-      setSplitMode(false);
-      updatePdfToggleUI();
-    } else {
-      if (!state.learn.bookId || !state.learn.chapterId) { toast(L().chooseChapter); return; }
-      showChapterPdf();
-    }
-  });
-
-  $('#explainSplitBtn').addEventListener('click', () => {
-    const pane = $('#pdfPane');
-    if (!pane) return;
-    if (state.splitMode) {
-      if (window.PdfViewer) window.PdfViewer.clear();
-      setSplitMode(false);
       updatePdfToggleUI();
     } else {
       if (!state.learn.bookId || !state.learn.chapterId) { toast(L().chooseChapter); return; }
@@ -1247,10 +1212,6 @@ function bindLearn() {
   window.addEventListener('diagram-requested', () => showChapterDiagram());
   window.addEventListener('pdf-requested', () => {
     if (state.learn.bookId && state.learn.chapterId) showChapterPdf();
-  });
-  window.addEventListener('pdf-pane', () => {
-    const pane = $('#pdfPane');
-    if (pane && pane.classList.contains('hidden')) setSplitMode(false);
   });
 
   $('#explainBtn').addEventListener('click', async () => {
