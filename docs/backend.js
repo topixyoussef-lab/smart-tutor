@@ -137,6 +137,7 @@ async function getSettings() {
     openrouterKey: s.openrouterKey || '',
     moonshotKey: s.moonshotKey || '',
     pollinationsKey: s.pollinationsKey || '',
+    geminiKey: s.geminiKey || '',
     lang: s.lang || 'ar',
   };
 }
@@ -337,6 +338,27 @@ const IMAGE_ENDPOINT = 'https://openrouter.ai/api/v1/images';
 const IMAGE_MODELS = ['bytedance-seed/seedream-4.5', 'qwen/qwen-image-3', 'google/gemini-3.1-flash-lite-image'];
 const IMAGE_ASPECTS = new Set(['1:1','1:2','1:4','1:8','2:1','2:3','3:2','3:4','4:1','4:3','4:5','5:4','8:1','9:16','16:9','9:19.5','19.5:9','9:20','20:9','9:21','21:9']);
 const POLLI_MODELS = ['zimage', 'flux', 'turbo', 'klein'];
+const POLLI_MODELS_KEY = ['nanobanana', 'seedream', 'kontext', 'zimage', 'flux', 'turbo', 'klein'];
+const GEMINI_IMG_MODELS = ['gemini-2.5-flash-image', 'gemini-3.0-nano-banana'];
+const GEMINI_ASPECTS = new Set(['1:1','2:3','3:2','3:4','4:3','4:5','5:4','9:16','16:9','9:21','21:9']);
+
+function geminiAspect(ratio) {
+  const r = String(ratio || '').trim();
+  if (GEMINI_ASPECTS.has(r)) return r;
+  const m = /^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/.exec(r);
+  if (!m) return '16:9';
+  const a = parseFloat(m[1]), b = parseFloat(m[2]);
+  if (b === 0) return '16:9';
+  const v = a / b;
+  if (v >= 2.2) return '21:9';
+  if (v >= 1.6) return '16:9';
+  if (v >= 1.3) return '3:2';
+  if (v >= 1.05) return '4:3';
+  if (v >= 0.85) return '1:1';
+  if (v >= 0.65) return '3:4';
+  if (v >= 0.5) return '2:3';
+  return '9:16';
+}
 
 const ARABIC_RE = /[\u0600-\u06FF]/;
 
@@ -396,13 +418,58 @@ async function translateConcept(text, cfg) {
   }
 }
 
+async function generateViaGemini(theme, aspect, key) {
+  const aspectRatio = geminiAspect(aspect);
+  const promptText = 'Clean, vibrant, complete full-frame educational illustration in a polished textbook style, detailed, filling the whole frame. NO text, NO letters, NO numbers, NO watermark. Theme: '
+    + String(theme).slice(0, 400);
+  let lastErr = null;
+  for (const model of GEMINI_IMG_MODELS) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 25000);
+    try {
+      const res = await fetch('https://generativelanguage.googleapis.com/v1beta/models/' + model + ':generateContent?key=' + encodeURIComponent(String(key).trim()), {
+        method: 'POST',
+        signal: ctrl.signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: promptText }] }],
+          generationConfig: {
+            responseModalities: ['IMAGE', 'TEXT'],
+            imageConfig: { aspectRatio, imageSize: '1K' },
+          },
+        }),
+      });
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        lastErr = String(d?.error?.message || ('فشل Gemini (' + res.status + ')'));
+        continue;
+      }
+      const data = await res.json();
+      const parts = data?.candidates?.[0]?.content?.parts || [];
+      for (const part of parts) {
+        const img = part?.inlineData;
+        if (img && img.data) {
+          return { url: null, data: img.data, mime: img.mimeType || 'image/png', source: 'gemini' };
+        }
+      }
+      lastErr = 'لم يُعد Gemini صورة.';
+    } catch (e) {
+      lastErr = String(e?.message || e);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw new Error(lastErr || 'فشل توليد صورة Gemini.');
+}
+
 async function generateViaPollinations(theme, aspect, token) {
   const { w, h } = pollinationsDims(aspect);
   const promptText = 'Clean colorful educational illustration, flat vector cartoon style, full frame, rich detail, the whole picture frame is completely filled with the theme. NO text, NO letters, NO numbers, NO watermark, NO caption. Theme: '
     + String(theme).slice(0, 300);
   let lastErr = null;
-  for (let i = 0; i < POLLI_MODELS.length; i++) {
-    const model = POLLI_MODELS[i];
+  const models = token ? POLLI_MODELS_KEY : POLLI_MODELS;
+  for (let i = 0; i < models.length; i++) {
+    const model = models[i];
     const seed = Math.floor(Math.random() * 1e9);
     let url = 'https://image.pollinations.ai/prompt/' + encodeURIComponent(promptText)
       + '?width=' + w + '&height=' + h + '&nologo=true&private=true&model=' + model + '&seed=' + seed;
@@ -441,11 +508,19 @@ async function generateImageHandler(body) {
   const translated = await translateConcept(theme, cfg);
   const themeFinal = translated || theme;
 
-  let freeErr = null;
+  const errors = [];
+  if (cfg.geminiKey) {
+    try {
+      return await generateViaGemini(themeFinal, ratio, cfg.geminiKey);
+    } catch (e) {
+      errors.push('gemini: ' + String(e?.message || e));
+    }
+  }
+
   try {
     return await generateViaPollinations(themeFinal, ratio, cfg.pollinationsKey);
   } catch (e) {
-    freeErr = String(e?.message || e);
+    errors.push('pollinations: ' + String(e?.message || e));
   }
 
   let paid = null;
@@ -490,7 +565,7 @@ async function generateImageHandler(body) {
   return {
     status: 502,
     error: (paid?.error || 'فشل توليد الصورة.')
-      + (freeErr && freeErr.includes('pollinations') ? ' | ' + freeErr : ''),
+      + (errors.length ? ' | ' + errors.join(' · ') : ''),
   };
 }
 
@@ -1287,6 +1362,7 @@ async function handleApi(method, pathname, init) {
         openrouterKey: s.openrouterKey ? 'set' : '',
         moonshotKey: s.moonshotKey ? 'set' : '',
         pollinationsKey: s.pollinationsKey ? 'set' : '',
+        geminiKey: s.geminiKey ? 'set' : '',
         lang: s.lang,
         freeModels: FREE_MODELS,
         moonshotModels: MOONSHOT_MODELS,
@@ -1300,6 +1376,7 @@ async function handleApi(method, pathname, init) {
         ...(body.openrouterKey ? { openrouterKey: body.openrouterKey } : {}),
         ...(body.moonshotKey ? { moonshotKey: body.moonshotKey } : {}),
         ...(body.pollinationsKey ? { pollinationsKey: body.pollinationsKey } : {}),
+        ...(body.geminiKey ? { geminiKey: body.geminiKey } : {}),
         ...(body.lang ? { lang: body.lang } : {}),
       });
       return json({ ok: true, provider: saved.provider, model: saved.model, lang: saved.lang });

@@ -39,6 +39,7 @@ const LABELS = {
     topicsSummary: 'نقاط الضعف الأكثر تكراراً ', history: 'تاريخ الاختبارات',
     aiProvider: 'إعدادات الذكاء الاصطناعي', settingsNote: 'المفاتيح تُحفظ محلياً على جهازك فقط (في ملف data داخل المجلد) ولا تُرفع لأي مكان. موديلات :free على OpenRouter مجانية 100%.',
     lblPolliKey: 'مفتاح Pollinations المجاني (اختياري) — سجّل مجاناً في auth.pollinations.ai ثم الصق هنا: بيكشّل علامة الماء ويرفع حدّ الطلبات، بدون أي فلوس.',
+    lblGeminiKey: 'مفتاح Google Gemini للصور (مجاني، الأفضل جودة) — أنشئه مجاناً من aistudio.google.com/apikey ثم الصقه هنا: 500 صورة مجانية يومياً بجودة عالية.',
     settingsSaved: 'تم حفظ الإعدادات بنجاح', chooseBookFirst: 'اختر كتاباً أولاً', noChapters: 'لم يُعثر على فصول. يمكنك إضافتها يدوياً من المكتبة.', chooseChapter: 'اختر فصلاً', wholeBook: 'الكتاب كاملاً', goToExplainHint: 'انتقلنا لتبويب الشرح — اختر فصلاً ثم اضغط "اشرح لي"', genStarted: 'جاري توليد الامتحان بواسطة الذكاء الاصطناعي... قد يستغرق دقيقة', examGenerated: 'تم توليد الامتحان بنجاح',
     noExams: 'لم تنشئ أي امتحان بعد. ابدأ بالتوليد الآن!', noResults: 'لا توجد نتائج بعد. جرّب امتحاناً!',
     startText: 'ابدأ الامتحان', retake: 'إعادة المحاولة', view: 'المعاينة', del: 'حذف',
@@ -93,6 +94,7 @@ const LABELS = {
     topicsSummary: 'Most frequent weak topics', history: 'Test history',
     aiProvider: 'AI settings', settingsNote: 'Keys are stored only on your device (data folder) and never uploaded anywhere. :free models on OpenRouter are 100% free.',
     lblPolliKey: 'Free Pollinations key (optional) — sign up free at auth.pollinations.ai then paste it here: removes the watermark and raises the rate limit, at zero cost.',
+    lblGeminiKey: 'Google Gemini image key (free, best quality) — get one free at aistudio.google.com/apikey then paste it here: 500 free high-quality images per day.',
     settingsSaved: 'Settings saved successfully', chooseBookFirst: 'Choose a book first', noChapters: 'No chapters found. You can add them manually from the library.', chooseChapter: 'Choose a chapter', wholeBook: 'Entire book', goToExplainHint: 'Switched to Learn tab — pick a chapter and press "Explain"', genStarted: 'Generating exam with AI... may take a minute', examGenerated: 'Exam generated successfully',
     noExams: 'No exams yet. Start generating now!', noResults: 'No results yet. Try an exam!',
     startText: 'Start exam', retake: 'Retry', view: 'Review', del: 'Delete',
@@ -1708,6 +1710,8 @@ function renderSettings() {
   $('#setKey').placeholder = s.openrouterKey === 'set' || s.moonshotKey === 'set' ? 'المفتاح محفوظ — اتركه فارغاً للإبقاء عليه' : 'sk-...';
   $('#setPolliKey').value = '';
   $('#setPolliKey').placeholder = s.pollinationsKey === 'set' ? 'المفتاح محفوظ — اتركه فارغاً للإبقاء عليه' : 'pk_...';
+  $('#setGeminiKey').value = '';
+  $('#setGeminiKey').placeholder = s.geminiKey === 'set' ? 'المفتاح محفوظ — اتركه فارغاً للإبقاء عليه' : 'AIza...';
   $('#setLang').value = state.lang;
   $('#providerStatus').innerHTML = '';
 }
@@ -1731,6 +1735,8 @@ async function saveSettings() {
   if (key) body[prov === 'moonshot' ? 'moonshotKey' : 'openrouterKey'] = key;
   const polliKey = $('#setPolliKey').value.trim();
   if (polliKey) body.pollinationsKey = polliKey;
+  const geminiKey = $('#setGeminiKey').value.trim();
+  if (geminiKey) body.geminiKey = geminiKey;
   await api('/api/settings', { method: 'PUT', body });
   await loadSettings();
   setLang(lang);
