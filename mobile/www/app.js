@@ -182,7 +182,7 @@ function esc(s) {
 function renderMarkdown(src) {
   let raw = marked.parse(src || '');
   raw = raw
-    .replace(/\[FIG:[^\]]*\]([\s\S]*?)\[\/FIG\]/g, (_m, inner) => `<figure class="ai-fig">${inner}</figure>`)
+    .replace(/\[FIG:([^\]]*)\]([\s\S]*?)\[\/FIG\]/g, (_m, meta, inner) => `<figure class="ai-fig" data-label="${esc((meta || '').split(':')[0] || 'fig')}">${inner}</figure>`)
     .replace(/<svg /g, '<svg ')
     .replace(/^\s*>?\s*\[FIG:.*$/gm, '')
     .replace(/^\s*>?\s*\[\/FIG\]\s*$/gm, '');
@@ -592,11 +592,21 @@ function renderVisualExplain(images) {
 function wireSvgPngButtons(container) {
   if (!container) return;
   const svgs = container.querySelectorAll('.md-body svg');
-  svgs.forEach((svg) => {
+  svgs.forEach((svg, svgIndex) => {
     if (svg.closest('.fig-actions')) return;
+    const figKey = svg.closest('.ai-fig')?.getAttribute('data-label') || ('fig-' + svgIndex);
+    const saved = (state.explain.aiImages || []).find((im) => im.fig === figKey);
     const wrap = document.createElement('div');
     wrap.className = 'fig-actions flex items-center gap-2 mt-1 mb-3';
     svg.after(wrap);
+    const injectImage = () => {
+      const imgWrap = document.createElement('div');
+      imgWrap.className = 'mt-2 ai-photo rounded-xl overflow-hidden';
+      imgWrap.innerHTML = saved ? '<img src="' + saved.src + '" alt="' + esc(saved.concept) + '" class="w-full object-contain border border-slate-200 rounded-xl">' : '';
+      wrap.after(imgWrap);
+      return imgWrap;
+    };
+    if (saved) injectImage();
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'btn-ghost text-xs px-2.5 py-1 rounded-lg';
@@ -655,11 +665,12 @@ function wireSvgPngButtons(container) {
         const src = r.data ? 'data:' + (r.mime || 'image/png') + ';base64,' + r.data : r.url;
         if (!src) throw new Error(L().aiImageFail);
         if (!state.explain.aiImages) state.explain.aiImages = [];
-        state.explain.aiImages.push({ src, concept: concept.slice(0, 120) });
+        state.explain.aiImages = state.explain.aiImages.filter((im) => im.fig !== figKey);
+        state.explain.aiImages.push({ src, concept: concept.slice(0, 120), fig: figKey });
         const imgWrap = document.createElement('div');
         imgWrap.className = 'mt-2 ai-photo rounded-xl overflow-hidden';
         imgWrap.innerHTML = '<img src="' + src + '" alt="' + esc(concept) + '" class="w-full object-contain border border-slate-200 rounded-xl">';
-        svg.after(imgWrap);
+        wrap.after(imgWrap);
       } catch (e) {
         toast(e.message || L().aiImageFail);
       } finally {
