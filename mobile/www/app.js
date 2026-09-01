@@ -1227,6 +1227,7 @@ function bindLearn() {
     $('#cardsBox').classList.add('hidden');
     state.explain.md = '';
     state.explain.images = [];
+    state.explain.aiImages = [];
     $('#explainVisualBox').classList.add('hidden');
     $('#stopExplainBtn').classList.remove('hidden');
     setStatusChip(L().thinking);
@@ -1253,11 +1254,11 @@ function bindLearn() {
           full += t;
           state.explain.md = full;
           $('#explainContent').innerHTML = renderMarkdown(full);
+          wireSvgPngButtons($('#explainContent'));
         },
         onDone: () => {
           clearStatusChip();
           $('#stopExplainBtn').classList.add('hidden');
-          wireSvgPngButtons($('#explainContent'));
         },
       });
     } catch (e) {

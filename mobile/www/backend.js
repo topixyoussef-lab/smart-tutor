@@ -565,8 +565,36 @@ function systemTeacher(lang) {
 function explainMessages({ bookTitle, chapterTitle, chapterText, lang, visualize }) {
   const visualInjection = visualize
     ? (lang === 'ar'
-      ? '\n\n**مهم (شرح مصوّر):** داخل الشرح ادمج رسوماً توضيحية مولّدة كـ SVG نقي (مخططات انسيابية flowcharts، جداول مقارنة tables، رسوم بيانية charts، خرائط ذهنية mind maps، مخططات مراحل) في المواضع المهمة. أكتب كل رسم داخل كتلة خاصة بصيغة:\n\n[FIG:LABEL:عنوان الرسم]\n<svg width="700" height="300" xmlns="http://www.w3.org/2000/svg"> ... نص SVG ... </svg>\n[/FIG]\n\nالشروط:\n- كل رسم SVG نقي بدون <script>، بدون href خارجي، بدون أحرف عربية عشوائية (استخدم نصوص واضحة)، مع ألوان تمييزية مناسبة.\n- اجعل كل SVG بعرض كامل `width="700"` وارتفاع مناسب `height="..."`، مع تعليق `<text>` داخل الرسم لشرح الأجزاء.\n- أدخل 2-4 رسومات موزعة على الفصل حيث تفيد، وليس بعد كل جملة.\n- القوانين تبقى LaTeX داخل النص، والرسم يوضّع فقط ما يُبَصِّر.\n- كل رسم يعقبها شرح قصير نصي يربط الرسم بالمفهوم.'
-      : '\n\n**Important (visual explanation):** Inside the explanation, embed AI-generated illustrations as pure SVG (flowcharts, comparison tables, charts, mind maps, stage/phase diagrams) at the important points. Write each drawing inside a dedicated block:\n\n[FIG:LABEL:drawing title]\n<svg width="700" height="300" xmlns="http://www.w3.org/2000/svg"> ... SVG content ... </svg>\n[/FIG]\n\nRules:\n- Each SVG is pure (no <script>, no external href, clear readable text), with suitable accent colors.\n- Make each SVG full-width `width="700"` with an appropriate `height`, and include `<text>` labels inside the drawing.\n- Insert 2-4 drawings spread across the chapter where useful, not after every sentence.\n- Formulas stay as LaTeX in the body text; the drawing only visualizes what helps.\n- Each drawing is followed by a short textual explanation linking it to the concept.')
+      ? '\n\n**إلزامي — ادمج رسوماً توضيحية (شرح مصوّر):** يجب أن تُنتج 2–4 رسوماً توضيحية SVG نقي داخل الشرح (مخطط انسيابي flowchart، جدول مقارنة، رسم بياني، خريطة ذهنية، أو مخطط مراحل) في المواضع المهمة، وليس بعد كل جملة. اكتب **كل** رسم داخل كتلة مخصوصة بهذا الشكل الحرفي (سطر `[FIG` ثم سطر `<svg...` ثم سطر `[/FIG]`):
+
+[FIG:flow:عنوان الرسم]
+<svg width="700" height="300" xmlns="http://www.w3.org/2000/svg">
+<!-- عناصر الشكل هنا: مستطيلات rect ودوائر circle وأسهم line/text -->
+</svg>
+[/FIG]
+
+قواعد صارمة:
+- كل رسم SVG نقي فقط: `<svg>`, `<rect>`, `<circle>`, `<ellipse>`, `<line>`, `<polyline>`, `<polygon>`, `<text>`, `<tspan>`, `<path>`, `<defs>`/`<linearGradient>`. ممنوع `<script>` وممنوع أي `href` خارجي وممنوع `foreignObject`.
+- اللون النصي داخل الرسم بدرجة داكنة مقروءة، والخلفية بيضاء `#ffffff`.
+- العرض كامل `width="700"` والارتفاع مناسب `height="300"~"500"`.
+- لا تكتب أحرفاً عربية عشوائية داخل `<text>`؛ استخدم نصوصاً قصيرة واضحة (حسب لغة الشرح).
+- افتح الرسم بـ `<svg` ثم أغلق بـ `</svg>` في نفس الكتلة، قبل `[/FIG]` مباشرة.
+- بعد كل رسم، اكتب جملة واحدة تربط الرسم بالمفهوم.'
+      : '\n\n**MANDATORY — embed visual SVG illustrations (visual explanation):** You MUST produce 2–4 pure-SVG illustrations inside the explanation (a flowchart, comparison table, chart, mind map, or stage diagram) at the important points, not after every sentence. Write **each** drawing inside a dedicated block exactly like this (a `[FIG` line, then a `<svg...` line, then a `[/FIG]` line):
+
+[FIG:flow:drawing title]
+<svg width="700" height="300" xmlns="http://www.w3.org/2000/svg">
+<!-- elements here: rect, circle, line/text -->
+</svg>
+[/FIG]
+
+Strict rules:
+- Pure SVG elements only: `<svg>`, `<rect>`, `<circle>`, `<ellipse>`, `<line>`, `<polyline>`, `<polygon>`, `<text>`, `<tspan>`, `<path>`, `<defs>`/`<linearGradient>`. No `<script>`, no external `href`, no `foreignObject`.
+- Dark legible text color on a white `#ffffff` background.
+- Full width `width="700"` and suitable `height="300"~"500"`.
+- Do not put random Arabic glyphs inside `<text>`; use short clear labels (in the explanation language).
+- Open with `<svg` and close with `</svg>` inside the block, right before `[/FIG]`.
+- After each drawing, write ONE sentence linking the drawing to the concept.')
     : '';
   const user =
     lang === 'ar'
