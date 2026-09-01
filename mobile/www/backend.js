@@ -332,6 +332,10 @@ async function* streamChat(msgs, { temperature = 0.4, maxTokens = 8000, model } 
 }
 
 /* ==================== AI IMAGE GENERATION (OpenRouter) ==================== */
+const IMAGE_ENDPOINT = 'https://openrouter.ai/api/v1/images';
+const IMAGE_MODELS = ['google/gemini-2.5-flash-image', 'bytedance-seed/seedream-4.5'];
+const IMAGE_ASPECTS = new Set(['1:1','1:2','1:4','1:8','2:1','2:3','3:2','3:4','4:1','4:3','4:5','5:4','8:1','9:16','16:9','9:19.5','19.5:9','9:20','20:9','9:21','21:9']);
+
 async function generateImageHandler(body) {
   const { prompt, lang } = body || {};
   if (!prompt || !String(prompt).trim()) return { status: 400, error: 'أدخل وصفاً لتوليد الصورة.' };
@@ -340,38 +344,39 @@ async function generateImageHandler(body) {
     return { status: 400, error: 'توليد الصور متاح حالياً عبر OpenRouter فقط. بدّل المزوّد من الإعدادات.' };
   }
   if (!cfg.key) return { status: 400, error: 'أضف مفتاح OpenRouter أولاً من الإعدادات.' };
-  const MODEL = 'google/gemini-2.5-flash'; // text->image capable model; adjust as needed
-  let imageUrl = null;
-  let base64 = null;
-  let mime = 'image/webp';
-  try {
-    const res = await fetch('https://openrouter.ai/api/v1/images/generations', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: 'Bearer ' + cfg.key,
-        'HTTP-Referer': 'https://smart-tutor.app',
-        'X-Title': 'Smart Tutor',
-      },
-      body: JSON.stringify({ model: MODEL, prompt: String(prompt).slice(0, 800) }),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      const item = data?.data?.[0];
-      if (item) {
-        if (item.url) imageUrl = item.url;
-        base64 = item.b64_json || item.data || null;
-        if (base64) mime = item.mime_type || 'image/webp';
+  const p = String(prompt).slice(0, 800);
+  const extras = {};
+  const ratio = String(body.aspect || '').trim();
+  if (IMAGE_ASPECTS.has(ratio)) extras.aspect_ratio = ratio;
+  const headers = {
+    'Content-Type': 'application/json',
+    Authorization: 'Bearer ' + cfg.key,
+    'HTTP-Referer': 'https://smart-tutor.app',
+    'X-Title': 'Smart Tutor',
+  };
+  let lastErr = null;
+  for (const model of IMAGE_MODELS) {
+    try {
+      const res = await fetch(IMAGE_ENDPOINT, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ model, prompt: p, ...extras }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const item = data?.data?.[0];
+        const b64 = item?.b64_json || item?.data || null;
+        if (b64) return { url: item?.url || null, data: b64, mime: item?.media_type || item?.mime_type || 'image/png' };
+        lastErr = 'الموديل لم يرجع صورة.';
+        continue;
       }
-    } else {
       const d = await res.json().catch(() => ({}));
-      return { status: 502, error: d?.error?.message || 'فشل توليد الصورة (' + res.status + ') — قد لا يدعم مفتاحك موديلات الصور.' };
+      lastErr = d?.error?.message || ('فشل توليد الصورة (' + res.status + ')');
+    } catch (e) {
+      lastErr = String(e?.message || e);
     }
-  } catch (e) {
-    return { status: 502, error: String(e?.message || e) };
   }
-  if (!imageUrl && !base64) return { status: 502, error: 'الموديل لم يرجع صورة.' };
-  return { url: imageUrl, data: base64, mime };
+  return { status: 502, error: lastErr || 'فشل توليد الصورة — قد لا يدعم مفتاحك موديلات الصور.' };
 }
 
 /* ==================== PDF LAYER ==================== */

@@ -637,12 +637,22 @@ function wireSvgPngButtons(container) {
       aiBtn.textContent = L().aiImageLoading + '...';
       try {
         const concept = svg.getAttribute('data-concept') || svg.textContent?.trim().slice(0, 120) || 'مفهوم الفصل';
-        const prompt = state.lang === 'ar'
-          ? 'ارسم صورة توضيحية تعليمية واضحة عن: ' + concept
-          : 'Draw a clear educational illustration about: ' + concept;
-        const r = await apiPost('/api/generate-image', { prompt, lang: state.lang });
+        const aria = (svg.getAttribute('viewBox') || '').split(' ').map(Number);
+        const aw = aria[2] || svg.width?.baseVal?.value || 700;
+        const ah = aria[3] || svg.height?.baseVal?.value || 300;
+        let aspect = null;
+        if (aw && ah) {
+          const r = aw / ah;
+          aspect = r >= 2 ? '2:1' : r >= 1.6 ? '16:9' : r >= 1.26 ? '3:2' : r >= 1.02 ? '4:3' : r >= 0.82 ? '1:1' : r >= 0.62 ? '3:4' : r >= 0.48 ? '2:3' : '1:2';
+        }
+        const body = {
+          prompt: (state.lang === 'ar' ? 'ارسم صورة توضيحية تعليمية واضحة عن: ' : 'Draw a clear educational illustration about: ') + concept,
+          lang: state.lang,
+        };
+        if (aspect) body.aspect = aspect;
+        const r = await apiPost('/api/generate-image', body);
         if (r.error) throw new Error(r.error);
-        const src = r.data ? 'data:' + (r.mime || 'image/webp') + ';base64,' + r.data : r.url;
+        const src = r.data ? 'data:' + (r.mime || 'image/png') + ';base64,' + r.data : r.url;
         if (!src) throw new Error(L().aiImageFail);
         if (!state.explain.aiImages) state.explain.aiImages = [];
         state.explain.aiImages.push({ src, concept: concept.slice(0, 120) });
