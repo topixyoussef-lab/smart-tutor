@@ -136,6 +136,7 @@ async function getSettings() {
     model: s.model || 'minimax/minimax-m3:free',
     openrouterKey: s.openrouterKey || '',
     moonshotKey: s.moonshotKey || '',
+    pollinationsKey: s.pollinationsKey || '',
     lang: s.lang || 'ar',
   };
 }
@@ -331,10 +332,13 @@ async function* streamChat(msgs, { temperature = 0.4, maxTokens = 8000, model } 
   }
 }
 
-/* ==================== AI IMAGE GENERATION ==================== */
+/* ==================== AI IMAGE GENERATION (free first) ==================== */
 const IMAGE_ENDPOINT = 'https://openrouter.ai/api/v1/images';
 const IMAGE_MODELS = ['bytedance-seed/seedream-4.5', 'qwen/qwen-image-3', 'google/gemini-3.1-flash-lite-image'];
 const IMAGE_ASPECTS = new Set(['1:1','1:2','1:4','1:8','2:1','2:3','3:2','3:4','4:1','4:3','4:5','5:4','8:1','9:16','16:9','9:19.5','19.5:9','9:20','20:9','9:21','21:9']);
+const POLLI_MODELS = ['zimage', 'flux', 'turbo', 'klein'];
+
+const ARABIC_RE = /[\u0600-\u06FF]/;
 
 function pollinationsDims(aspect) {
   const m = /^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/.exec(String(aspect || '').trim());
@@ -356,47 +360,101 @@ function pollinationsDims(aspect) {
   return { w: W, h: H };
 }
 
-async function generateViaPollinations(promptText, aspect) {
-  const { w, h } = pollinationsDims(aspect);
-  const seed = Math.floor(Math.random() * 1e9);
-  const url = 'https://image.pollinations.ai/prompt/' + encodeURIComponent(String(promptText).slice(0, 600))
-    + '?width=' + w + '&height=' + h + '&nologo=true&model=flux&seed=' + seed;
+async function translateConcept(text, cfg) {
+  if (!ARABIC_RE.test(text) || !cfg.openrouterKey) return null;
+  const tmodel = (Array.isArray(FREE_MODELS) && FREE_MODELS[0]?.id) || 'minimax/minimax-m3:free';
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 24000);
+  const timer = setTimeout(() => ctrl.abort(), 12000);
   try {
-    const res = await fetch(url, { signal: ctrl.signal });
-    const ct = String(res.headers.get('content-type') || '');
-    if (!res.ok || !ct.startsWith('image/')) throw new Error('خدمة الصور المجانية مشغولة (' + res.status + ').');
-    const b64 = await blobToBase64(await res.blob());
-    return { url: null, data: b64, mime: ct, source: 'pollinations' };
+    const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      signal: ctrl.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: 'Bearer ' + cfg.openrouterKey,
+        'HTTP-Referer': 'https://smart-tutor.app',
+        'X-Title': 'Smart Tutor',
+      },
+      body: JSON.stringify({
+        model: tmodel,
+        messages: [
+          { role: 'system', content: 'You translate a short educational topic into English for an AI image prompt.' },
+          { role: 'user', content: 'Translate ONLY this topic into a short English image-prompt phrase (max 14 words). Reply with just the translation, nothing else:\n' + String(text).slice(0, 300) },
+        ],
+        temperature: 0.2,
+        max_tokens: 40,
+      }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const out = String(data?.choices?.[0]?.message?.content || '').trim();
+    return out || null;
+  } catch {
+    return null;
   } finally {
     clearTimeout(timer);
   }
 }
 
+async function generateViaPollinations(theme, aspect, token) {
+  const { w, h } = pollinationsDims(aspect);
+  const promptText = 'Clean colorful educational illustration, flat vector cartoon style, full frame, rich detail, the whole picture frame is completely filled with the theme. NO text, NO letters, NO numbers, NO watermark, NO caption. Theme: '
+    + String(theme).slice(0, 300);
+  let lastErr = null;
+  for (let i = 0; i < POLLI_MODELS.length; i++) {
+    const model = POLLI_MODELS[i];
+    const seed = Math.floor(Math.random() * 1e9);
+    let url = 'https://image.pollinations.ai/prompt/' + encodeURIComponent(promptText)
+      + '?width=' + w + '&height=' + h + '&nologo=true&private=true&model=' + model + '&seed=' + seed;
+    if (token) url += '&token=' + encodeURIComponent(String(token).trim());
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 24000);
+    try {
+      const res = await fetch(url, { signal: ctrl.signal });
+      const ct = String(res.headers.get('content-type') || '');
+      if (!res.ok || !ct.startsWith('image/')) {
+        lastErr = 'خدمة الصور المجانية مشغولة (' + res.status + ')';
+        continue;
+      }
+      const b64 = await blobToBase64(await res.blob());
+      if (!b64) { lastErr = 'استجابة فارغة'; continue; }
+      return { url: null, data: b64, mime: ct, source: 'pollinations', free: true };
+    } catch (e) {
+      lastErr = String(e?.message || e);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  throw new Error(lastErr || 'فشلت خدمة الصور المجانية.');
+}
+
 async function generateImageHandler(body) {
-  const { prompt, lang } = body || {};
-  if (!prompt || !String(prompt).trim()) return { status: 400, error: 'أدخل وصفاً لتوليد الصورة.' };
-  const cfg = await currentConfig();
-  const p = String(prompt).slice(0, 800);
+  const { prompt } = body || {};
+  const conceptRaw = String(body?.concept || '').trim();
+  const hasContent = (prompt && String(prompt).trim()) || conceptRaw;
+  if (!hasContent) return { status: 400, error: 'أدخل وصفاً لتوليد الصورة.' };
+  const cfg = await getSettings();
+  const p = String(prompt || conceptRaw).slice(0, 800);
   const ratio = String(body.aspect || '').trim();
+
+  const theme = conceptRaw || p;
+  const translated = await translateConcept(theme, cfg);
+  const themeFinal = translated || theme;
 
   let freeErr = null;
   try {
-    const free = await generateViaPollinations(p, ratio);
-    free.free = true;
-    return free;
+    return await generateViaPollinations(themeFinal, ratio, cfg.pollinationsKey);
   } catch (e) {
     freeErr = String(e?.message || e);
   }
 
   let paid = null;
-  if (cfg.provider === 'openrouter' && cfg.key) {
+  if (cfg.provider === 'openrouter' && cfg.openrouterKey) {
     const extras = { resolution: '1K' };
     if (IMAGE_ASPECTS.has(ratio)) extras.aspect_ratio = ratio;
     const headers = {
       'Content-Type': 'application/json',
-      Authorization: 'Bearer ' + cfg.key,
+      Authorization: 'Bearer ' + cfg.openrouterKey,
       'HTTP-Referer': 'https://smart-tutor.app',
       'X-Title': 'Smart Tutor',
     };
@@ -1228,6 +1286,7 @@ async function handleApi(method, pathname, init) {
         model: s.model,
         openrouterKey: s.openrouterKey ? 'set' : '',
         moonshotKey: s.moonshotKey ? 'set' : '',
+        pollinationsKey: s.pollinationsKey ? 'set' : '',
         lang: s.lang,
         freeModels: FREE_MODELS,
         moonshotModels: MOONSHOT_MODELS,
@@ -1240,6 +1299,7 @@ async function handleApi(method, pathname, init) {
         ...(body.model ? { model: body.model } : {}),
         ...(body.openrouterKey ? { openrouterKey: body.openrouterKey } : {}),
         ...(body.moonshotKey ? { moonshotKey: body.moonshotKey } : {}),
+        ...(body.pollinationsKey ? { pollinationsKey: body.pollinationsKey } : {}),
         ...(body.lang ? { lang: body.lang } : {}),
       });
       return json({ ok: true, provider: saved.provider, model: saved.model, lang: saved.lang });
