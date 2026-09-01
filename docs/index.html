@@ -130,7 +130,7 @@
       </button>
       <span id="pdfToggleHint" class="text-xs text-slate-400"></span>
     </div>
-    <div class="grid lg:grid-cols-2 gap-5 items-start mt-4">
+    <div id="learnLayout" class="grid lg:grid-cols-1 gap-5 items-start mt-4">
       <div class="min-w-0">
         <div id="explainBox" class="card p-6 hidden">
           <div id="explainToggle" class="hidden"></div>
@@ -139,6 +139,7 @@
               <button id="ttsBtn" class="btn-ghost text-xs px-2.5 py-1.5 rounded-lg" title="استماع للشرح">🔊</button>
               <button id="explainMdBtn" class="btn-ghost text-xs px-2.5 py-1.5 rounded-lg" title="تحميل الشرح Markdown">⬇️ MD</button>
               <button id="explainPrintBtn" class="btn-ghost text-xs px-2.5 py-1.5 rounded-lg" title="حفظ/طباعة الشرح PDF">🖨️</button>
+              <button id="explainSplitBtn" class="btn-ghost text-xs px-2.5 py-1.5 rounded-lg" title="تقسيم العرض: الشرح والصفحة جنب بعض">⊞ نصفين</button>
             </div>
             <button id="explainFsBtn" data-fs-target="explainBox" class="fs-btn btn-ghost text-xs px-2.5 py-1.5 rounded-lg" title="ملء الشاشة">
               <svg class="fs-in" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M21 8V5a2 2 0 0 0-2-2h-3"/><path d="M3 16v3a2 2 0 0 0 2 2h3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
