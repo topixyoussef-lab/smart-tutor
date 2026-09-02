@@ -592,6 +592,49 @@ async function generateImageHandler(body) {
 }
 
 /* ==================== PDF LAYER ==================== */
+
+/* ---------------- OCR (Tesseract.js, in-browser, free) ---------------- */
+let _ocrPromise = null;
+function loadTesseract() {
+  if (!_ocrPromise) {
+    _ocrPromise = import('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.esm.min.mjs')
+      .then((m) => m.default || m)
+      .catch((e) => { _ocrPromise = null; throw new Error('تعذّر تحميل Tesseract.js (' + (e?.message || e) + ')'); });
+  }
+  return _ocrPromise;
+}
+
+function renderPageToCanvas(pdf, page, scale = 2.2) {
+  const viewport = page.getViewport({ scale });
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.floor(viewport.width);
+  canvas.height = Math.floor(viewport.height);
+  return page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise.then(() => canvas);
+}
+
+function guessLang(text) {
+  const ar = (text.match(/[\u0600-\u06FF]/g) || []).length;
+  const en = (text.match(/[a-zA-Z]/g) || []).length;
+  return ar >= en ? 'ara' : 'eng';
+}
+
+async function ocrPage(pdf, page, lang) {
+  const T = await loadTesseract();
+  const canvas = await renderPageToCanvas(pdf, page);
+  const langs = lang === 'eng' ? 'eng' : 'ara';
+  const worker = await T.createWorker(langs, 1, {
+    logger: () => {},
+  });
+  try {
+    await worker.setParameters({ tessedit_pageseg_mode: '3' });
+    const { data } = await worker.recognize(canvas);
+    return (data?.text || '').trim();
+  } finally {
+    await worker.terminate();
+  }
+}
+
+/* ---------------- extractPdf ---------------- */
 function extractPdf(buffer, opts = {}) {
   const maxPages = opts.maxPages || 0;
   const onProgress = opts.onProgress || null;
@@ -602,6 +645,7 @@ function extractPdf(buffer, opts = {}) {
     const limit = maxPages > 0 ? Math.min(maxPages, total) : total;
 
     const pages = [];
+    let lang = null;
     for (let n = 1; n <= limit; n++) {
       const page = await pdf.getPage(n);
       const content = await page.getTextContent();
@@ -615,6 +659,29 @@ function extractPdf(buffer, opts = {}) {
       pages.push(text);
       page.cleanup();
       onProgress?.({ phase: 'extract', page: n, total: limit, percent: Math.round(2 + (n / limit) * 88) });
+    }
+
+    /* ---------- OCR fallback for scanned/empty pages ---------- */
+    const emptyIdx = pages.map((t, i) => ({ t, i })).filter((x) => x.t.trim().length === 0).map((x) => x.i);
+    if (emptyIdx.length && opts.ocr !== false) {
+      try {
+        const nonEmpty = pages.find((t) => t.trim().length > 0) || '';
+        lang = opts.ocrLang || guessLang(nonEmpty || 'نص عربي');
+        const maxOcr = Math.min(emptyIdx.length, opts.maxOcrPages || 20);
+        onProgress?.({ phase: 'ocr', total: emptyIdx.length, percent: 90 });
+        for (let k = 0; k < maxOcr; k++) {
+          const i = emptyIdx[k];
+          const page = await pdf.getPage(i + 1);
+          const ocrText = await ocrPage(pdf, page, lang).catch(() => '');
+          page.cleanup();
+          if (ocrText) {
+            pages[i] = ocrText;
+            onProgress?.({ phase: 'ocr', page: k + 1, total: maxOcr, percent: 90 + Math.round(((k + 1) / maxOcr) * 8) });
+          }
+        }
+      } catch (e) {
+        console.warn('[SmartTutor] OCR غير متاح لهذه الصفحات:', e?.message || e);
+      }
     }
 
     onProgress?.({ phase: 'chapters', percent: 93 });
@@ -654,6 +721,38 @@ async function resolvePageIndex(pdf, dest) {
   } catch {
     return null;
   }
+}
+
+/* ---------------- reOCR an already-saved scanned book ---------------- */
+async function* reocrStream(bookId, onProgress) {
+  const book = await getBook(bookId);
+  if (!book) { yield { type: 'error', error: 'الكتاب غير موجود' }; return; }
+  const fileBlob = await idbGet('files', bookId);
+  if (!fileBlob) { yield { type: 'error', error: 'ملف PDF الأصلي غير محفوظ. أعد رفع الكتاب.' }; return; }
+  const buf = await fileBlob.arrayBuffer();
+  const pending = [];
+  let ready = false;
+  const resultPromise = extractPdf(new Uint8Array(buf), {
+    maxPages: 0,
+    ocr: true,
+    onProgress: (p) => pending.push(p),
+  }).then((r) => { ready = true; return r; });
+  while (!ready || pending.length) {
+    while (pending.length) {
+      const p = pending.shift();
+      yield { type: 'progress', phase: p.phase, page: p.page, total: p.total, percent: p.percent };
+    }
+    await tick();
+  }
+  const result = await resultPromise;
+  book.pageCount = result.pageCount;
+  book.extractedPages = result.extractedPages;
+  book.empty = result.empty;
+  book.chapters = result.chapters;
+  book.reocr = true;
+  await saveBook(book);
+  await savePages(bookId, result.pages);
+  yield { type: 'result', book };
 }
 
 async function detectChapters(pdf, outline, pages, limit) {
@@ -1514,6 +1613,7 @@ async function handleApi(method, pathname, init) {
   }
 
   const booksRe = /^\/api\/books\/([^/]+)$/;
+  const reocrRe = /^\/api\/books\/([^/]+)\/reocr$/;
   const chaptersRe = /^\/api\/books\/([^/]+)\/chapters$/;
   let m = pathname.match(chaptersRe);
   if (m) {
@@ -1534,6 +1634,12 @@ async function handleApi(method, pathname, init) {
       await saveBook(book);
       return json({ ok: true, book });
     }
+    return json({ error: 'غير مسموح' }, 405);
+  }
+  m = pathname.match(reocrRe);
+  if (m) {
+    const bookId = decodeURIComponent(m[1]);
+    if (method === 'POST') return sseResponse(reocrStream(bookId));
     return json({ error: 'غير مسموح' }, 405);
   }
   m = pathname.match(booksRe);

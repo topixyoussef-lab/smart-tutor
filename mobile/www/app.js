@@ -48,8 +48,8 @@ const LABELS = {
     unanswered: 'لم تجب', typeLabel: { mcq: 'اختيار من متعدد', concept: 'مفهومي', problem: 'مسألة' },
     weakTopics: 'نقاط الضعف', strengths: 'نقاط القوة', recommendations: 'توصيات',
     genError: 'خطأ أثناء توليد الامتحان', submitExam: 'تسليم الامتحان', confirmedSubmit: 'متأكد من تسليم الامتحان؟ لن تتمكن من التعديل بعدها.',
-    uploadSuccess: 'تم رفع الكتاب وفصل الفصول تلقائياً', uploadFail: 'فشل رفع الكتاب', fileSelect: 'اضغط للاختيار', uploading: 'جاري رفع الكتاب واستخراج النص...',
-    progressUpload: 'جاري رفع الملف...', progressLoadFile: 'تجهيز الملف وقراءة بياناته...', progressExtractPage: 'استخراج نص الصفحة', progressChapters: 'اكتشاف الفصول...', progressDone: 'اكتمل!', progressError: 'تعذّرت قراءة الملف.',
+    uploadSuccess: 'تم رفع الكتاب وفصل الفصول تلقائياً', uploadFail: 'فشل رفع الكتاب', fileSelect: 'اضغط للاختيار', uploading: 'جاري رفع الكتاب واستخراج النص...', btnReocr: '🔍 إعادة قراءة بالـ OCR', reocrDone: 'تمت إعادة قراءة النص بنجاح',
+    progressUpload: 'جاري رفع الملف...', progressLoadFile: 'تجهيز الملف وقراءة بياناته...', progressExtractPage: 'استخراج نص الصفحة', progressOcr: 'قراءة صفحة ممسوحة (OCR)', progressChapters: 'اكتشاف الفصول...', progressDone: 'اكتمل!', progressError: 'تعذّرت قراءة الملف.',
     chaptersManaged: 'تم حفظ الفصول', modelMissing: 'لاحظ: الموديل المجاني قد يبدو بطيئاً بسبب حصة الاستخدام. جرّب موديلاً آخر من الإعدادات إذا لزم.',
     stop: 'إيقاف', thinking: 'جاري التفكير...',
     emptyAnswer: 'اكتب إجابة أو اختر خياراً قبل التسليم',
@@ -103,8 +103,8 @@ const LABELS = {
     unanswered: 'Unanswered', typeLabel: { mcq: 'Multiple choice', concept: 'Conceptual', problem: 'Problem' },
     weakTopics: 'Weak topics', strengths: 'Strengths', recommendations: 'Recommendations',
     genError: 'Error generating exam', submitExam: 'Submit exam', confirmedSubmit: 'Submit exam? You will not be able to edit afterwards.',
-    uploadSuccess: 'Book uploaded and chapters indexed automatically', uploadFail: 'Upload failed', fileSelect: 'Click to select', uploading: 'Uploading and extracting text...',
-    progressUpload: 'Uploading file...', progressLoadFile: 'Preparing file and reading data...', progressExtractPage: 'Extracting text from page', progressChapters: 'Detecting chapters...', progressDone: 'Done!', progressError: 'Could not read the file.',
+    uploadSuccess: 'Book uploaded and chapters indexed automatically', uploadFail: 'Upload failed', fileSelect: 'Click to select', uploading: 'Uploading and extracting text...', btnReocr: '🔍 Re-read with OCR', reocrDone: 'Text re-read successfully',
+    progressUpload: 'Uploading file...', progressLoadFile: 'Preparing file and reading data...', progressExtractPage: 'Extracting text from page', progressOcr: 'Reading scanned page (OCR)', progressChapters: 'Detecting chapters...', progressDone: 'Done!', progressError: 'Could not read the file.',
     chaptersManaged: 'Chapters saved', modelMissing: 'Note: free models can be slow due to rate limits. Try another model in settings if needed.',
     stop: 'Stop', thinking: 'Thinking...',
     emptyAnswer: 'Write an answer or choose an option before submitting',
@@ -322,6 +322,40 @@ function bindUpload() {
   $('#uploadBtn').addEventListener('click', uploadBook);
 }
 
+async function reocrBook(bookId) {
+  const l = L();
+  progressOn(l.progressOcr);
+  state.uploadBusy = true;
+  let data = null;
+  let failMsg = null;
+  try {
+    await streamApi(`/api/books/${bookId}/reocr`, {}, {
+      onEvent: (obj) => {
+        if (obj.type === 'start' || obj.type === 'progress') {
+          if (obj.phase === 'ocr') progressUpdate(obj.percent || 90, `${l.progressOcr} ${obj.page || 0}/${obj.total || 0}`);
+          else if (obj.phase === 'extract') progressUpdate(obj.percent || 0, `${l.progressExtractPage} ${obj.page}/${obj.total}`);
+          else if (obj.phase === 'chapters') progressUpdate(97, l.progressChapters);
+          $('#progressTitle').textContent = l.progressOcr;
+        } else if (obj.type === 'result') data = obj;
+      },
+      onError: (msg) => { failMsg = msg; },
+    });
+    if (failMsg) throw new Error(failMsg);
+    if (!data?.book) throw new Error(l.progressError);
+    progressUpdate(100, l.progressDone);
+    setTimeout(progressOff, 450);
+    const b = state.books.find((x) => x.id === bookId);
+    Object.assign(b, data.book);
+    renderBooks();
+    toast(l.reocrDone || 'تمت إعادة القراءة', 'success');
+  } catch (e) {
+    progressOff();
+    toast(l.uploadFail + (e?.message ? ': ' + e.message : ''), 'error');
+  } finally {
+    state.uploadBusy = false;
+  }
+}
+
 async function uploadBook() {
   const fi = $('#fileInput');
   if (!fi.files[0] || state.uploadBusy) return;
@@ -349,6 +383,7 @@ async function uploadBook() {
         if (obj.type === 'start' || obj.type === 'progress') {
           if (obj.phase === 'load') progressUpdate(2, l.progressLoadFile);
           else if (obj.phase === 'extract') progressUpdate(obj.percent || 0, `${l.progressExtractPage} ${obj.page}/${obj.total}`);
+          else if (obj.phase === 'ocr') progressUpdate(obj.percent || 92, `${l.progressOcr} ${obj.page || 0}/${obj.total || 0}`);
           else if (obj.phase === 'chapters') progressUpdate(obj.percent || 94, l.progressChapters);
           $('#progressTitle').textContent = l.progressUpload;
         } else if (obj.type === 'result') {
@@ -409,7 +444,8 @@ function renderBooks() {
           <div class="min-w-0">
             <h3 class="font-extrabold text-brand-900 truncate">${esc(b.title)}</h3>
             <p class="text-xs text-slate-500">${b.pageCount} صفحة · ${b.extractedPages} مستخرج · ${b.chapters?.length || 0} فصل</p>
-            ${b.empty ? '<p class="text-xs text-rose-600 font-bold mt-1">تنبيه: النص قد يكون ممسوحاً ضوئياً</p>' : ''}
+            ${b.empty ? `<p class="text-xs text-rose-600 font-bold mt-1">تنبيه: النص قد يكون ممسوحاً ضوئياً</p>
+            <button class="btn-secondary text-xs mt-2 reocr-btn" data-id="${b.id}">${l.btnReocr}</button>` : ''}
           </div>
         </div>
         <button class="btn-ghost text-rose-500 del-book" data-id="${b.id}">${l.del}</button>
@@ -441,6 +477,7 @@ function renderBooks() {
     state.books = state.books.filter((b) => b.id !== btn.dataset.id);
     renderBooks();
   }));
+  grid.querySelectorAll('.reocr-btn').forEach((btn) => btn.addEventListener('click', async () => reocrBook(btn.dataset.id)));
   grid.querySelectorAll('.save-chapters').forEach((btn) => btn.addEventListener('click', async () => {
     const id = btn.dataset.book;
     const chapterRows = document.querySelectorAll(`#chapters-${id} .ch-title`);
