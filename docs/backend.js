@@ -252,11 +252,22 @@ async function chat(msgs, { json = false, temperature = 0.4, maxTokens = 8000, r
     body.temperature = temperature;
     body.max_tokens = maxTokens;
     try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: headersFor(provider, key),
-        body: JSON.stringify(body),
-      });
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 120000);
+      let res;
+      try {
+        res = await fetch(url, {
+          method: 'POST',
+          headers: headersFor(provider, key),
+          body: JSON.stringify(body),
+          signal: ctrl.signal,
+        });
+      } catch (e) {
+        clearTimeout(timer);
+        if (e.name === 'AbortError') throw new Error(`الموديل (${usedModel}) تجاوز الوقت (دقيقتين). جرّب موديلاً أسرع.`);
+        throw e;
+      }
+      clearTimeout(timer);
       if (!res.ok) {
         let msg = `خطأ من المزوّد (${res.status})`;
         try { const d = await res.json(); msg = d?.error?.message || d?.message || msg; } catch { }
@@ -290,13 +301,23 @@ async function chatJson(msgs, opts = {}) {
   return parseJson(out);
 }
 
-async function* streamChat(msgs, { temperature = 0.4, maxTokens = 8000, model } = {}) {
+async function* streamChat(msgs, { temperature = 0.4, maxTokens = 8000, model, timeoutMs = 90000 } = {}) {
   const { provider, model: m, key } = await currentConfig();
   const usedModel = model || m;
   const url = `${endpointFor(provider)}/chat/completions`;
   const body = { model: usedModel, messages: msgs, temperature, max_tokens: maxTokens, stream: true };
 
-  const res = await fetch(url, { method: 'POST', headers: headersFor(provider, key), body: JSON.stringify(body) });
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  let res;
+  try {
+    res = await fetch(url, { method: 'POST', headers: headersFor(provider, key), body: JSON.stringify(body), signal: ctrl.signal });
+  } catch (e) {
+    clearTimeout(timer);
+    if (e.name === 'AbortError') throw new Error(`الموديل (${usedModel}) تجاوز الوقت المحدد (${Math.round(timeoutMs / 1000)} ث). جرّب موديلاً آخر من الإعدادات.`);
+    throw e;
+  }
+  clearTimeout(timer);
   if (!res.ok) {
     let msg = `خطأ من المزوّد (${res.status})`;
     try { const d = await res.json(); msg = d?.error?.message || d?.message || msg; } catch { }
