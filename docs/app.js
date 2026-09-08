@@ -445,7 +445,7 @@ function renderBooks() {
           <div class="min-w-0">
             <h3 class="font-extrabold text-brand-900 truncate">${esc(b.title)}</h3>
             <p class="text-xs text-slate-500">${b.pageCount} صفحة · ${b.extractedPages} مستخرج · ${b.chapters?.length || 0} فصل</p>
-            ${b.empty ? `<p class="text-xs text-rose-600 font-bold mt-1">تنبيه: النص قد يكون ممسوحاً ضوئياً</p>
+            ${b.empty || b.ocrBad > 0 ? `<p class="text-xs text-rose-600 font-bold mt-1">تنبيه: النص قد يكون ممسوحاً ضوئياً أو ترميزه مشوّهاً — أعد قراءته بـ OCR</p>
             <button class="btn-secondary text-xs mt-2 reocr-btn" data-id="${b.id}">${l.btnReocr}</button>` : ''}
           </div>
         </div>

@@ -676,6 +676,48 @@ function guessLang(text) {
   return ar >= en ? 'ara' : 'eng';
 }
 
+/* يقيس جودة النص المستخرج: 1 = نص سليم، ~0 = نص مشوّه/ترميز خاطئ */
+function textQuality(text) {
+  const ar = (text.match(/[\u0600-\u06FF]/g) || []).length;
+  const letters = (text.match(/[A-Za-z\u0600-\u06FF]/g) || []).length;
+  if (letters < 20) return 1;
+  if (ar > 0) {
+    const tokens = (text.match(/[\u0600-\u06FF]+/g) || []).length;
+    if (!tokens) return 0;
+    const longWords = (text.match(/[\u0600-\u06FF]{4,}/g) || []).length;
+    const glued = (text.match(/[\u0600-\u06FF]+\d+|\d+[\u0600-\u06FF]+/g) || []).length;
+    return Math.max(0, (longWords / tokens) - glued * 0.2);
+  }
+  const tokens = (text.match(/[A-Za-z]+/g) || []).length;
+  if (!tokens) return 0;
+  const longWords = (text.match(/[A-Za-z]{5,}/g) || []).length;
+  return longWords / tokens;
+}
+
+/* تبييض الصفحة: تحويل لرمادي + مدّ التباين ليعرف Tesseract يُقرأ بشكل أفضل */
+function enhanceContrast(canvas) {
+  try {
+    const ctx = canvas.getContext('2d');
+    const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const d = img.data;
+    const gray = new Uint8ClampedArray(d.length / 4);
+    let min = 255, max = 0;
+    for (let i = 0, j = 0; i < d.length; i += 4, j++) {
+      const g = (d[i] * 299 + d[i + 1] * 587 + d[i + 2] * 114) / 1000;
+      gray[j] = g;
+      if (g < min) min = g;
+      if (g > max) max = g;
+    }
+    const span = Math.max(32, max - min);
+    for (let i = 0, j = 0; i < d.length; i += 4, j++) {
+      const v = Math.max(0, Math.min(255, ((gray[j] - min) / span) * 255));
+      d[i] = d[i + 1] = d[i + 2] = v;
+      d[i + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+  } catch { /* ignore */ }
+}
+
 let _ocrWorker = null;
 let _ocrLang = null;
 async function getOcrWorker(lang) {
@@ -689,8 +731,9 @@ async function getOcrWorker(lang) {
 
 async function ocrPage(pdf, page, lang) {
   const worker = await getOcrWorker(lang);
-  const canvas = await renderPageToCanvas(pdf, page);
+  const canvas = await renderPageToCanvas(pdf, page, 3);
   if (!canvas || !canvas.width || !canvas.height) return '';
+  enhanceContrast(canvas);
   const { data } = await worker.recognize(canvas);
   return (data?.text || '').trim();
 }
@@ -722,16 +765,19 @@ function extractPdf(buffer, opts = {}) {
       onProgress?.({ phase: 'extract', page: n, total: limit, percent: Math.round(2 + (n / limit) * 88) });
     }
 
-    /* ---------- OCR fallback for scanned/empty pages ---------- */
-    const emptyIdx = pages.map((t, i) => ({ t, i })).filter((x) => x.t.trim().length === 0).map((x) => x.i);
-    if (emptyIdx.length && opts.ocr !== false) {
+    /* ---------- OCR fallback for scanned/empty/garbled pages ---------- */
+    const badIdx = pages.map((t, i) => ({ t, i }))
+      .filter(({ t }) => t.trim().length === 0 || (t.trim().length > 0 && textQuality(t) < 0.35))
+      .map((x) => x.i);
+    if (badIdx.length && opts.ocr !== false) {
       try {
-        const nonEmpty = pages.find((t) => t.trim().length > 0) || '';
-        lang = opts.ocrLang || guessLang(nonEmpty || 'نص عربي');
-        const maxOcr = Math.min(emptyIdx.length, opts.maxOcrPages || 20);
-        onProgress?.({ phase: 'ocr', total: emptyIdx.length, percent: 90 });
+        const corpus = pages.filter((t) => t.trim().length > 0).join('\n');
+        lang = opts.ocrLang || guessLang(corpus || 'نص عربي');
+        const ocrCap = opts.maxOcrPages === 0 ? Infinity : opts.maxOcrPages || 20;
+        const maxOcr = Math.min(badIdx.length, ocrCap);
+        onProgress?.({ phase: 'ocr', total: badIdx.length, percent: 90 });
         for (let k = 0; k < maxOcr; k++) {
-          const i = emptyIdx[k];
+          const i = badIdx[k];
           const page = await pdf.getPage(i + 1);
           const ocrText = await ocrPage(pdf, page, lang).catch(() => '');
           page.cleanup();
@@ -760,6 +806,7 @@ function extractPdf(buffer, opts = {}) {
       extractedPages: limit,
       empty: limit > 0 && totalChars / limit < 15,
       hasText: totalChars > 0,
+      ocrBad: badIdx.length,
       pages,
       chapters,
     };
@@ -796,6 +843,7 @@ async function* reocrStream(bookId, onProgress) {
   const resultPromise = extractPdf(new Uint8Array(buf), {
     maxPages: 0,
     ocr: true,
+    maxOcrPages: 0,
     onProgress: (p) => pending.push(p),
   }).then((r) => { ready = true; return r; });
   while (!ready || pending.length) {
@@ -810,6 +858,7 @@ async function* reocrStream(bookId, onProgress) {
   book.extractedPages = result.extractedPages;
   book.empty = result.empty;
   book.chapters = result.chapters;
+  book.ocrBad = result.ocrBad;
   book.reocr = true;
   await saveBook(book);
   await savePages(bookId, result.pages);
@@ -1916,6 +1965,7 @@ async function* uploadBookStream(file, title, maxPages) {
     pageCount: result.pageCount,
     extractedPages: result.extractedPages,
     empty: result.empty,
+    ocrBad: result.ocrBad,
     createdAt: Date.now(),
     chapters: result.chapters,
   });
@@ -1927,7 +1977,8 @@ async function* uploadBookStream(file, title, maxPages) {
     percent: 100,
     book,
     warnings: [
-      result.empty ? 'الكتاب يبدو ممسوحاً ضوئياً بدون نص قابل للاستخراج. ستكون الشرح والأسئلة محدودة.' : null,
+      result.empty ? 'الكتاب يبدو ممسوحاً ضوئياً بدون نص قابل للاستخراج. استخدم زر "إعادة القراءة بـ OCR".' : null,
+      !result.empty && result.ocrBad > 0 ? 'بعض صفحات الكتاب ترميزها مشوّه (نص عشوائي). استخدم زر "إعادة القراءة بـ OCR" لقراءتها من الصورة مباشرة.' : null,
       maxPages > 0 && result.extractedPages < result.pageCount ? `تم استخراج أول ${result.extractedPages} صفحة فقط.` : null,
     ].filter(Boolean),
   };
