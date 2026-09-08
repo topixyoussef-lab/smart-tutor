@@ -131,9 +131,12 @@ function uid() {
 
 async function getSettings() {
   const s = (await idbGet('kv', 'settings')) || {};
+  const broken = ['minimax/minimax-m3:free'];
+  let model = s.model || 'z-ai/glm-5.2:free';
+  if (broken.includes(model)) model = 'z-ai/glm-5.2:free';
   return {
     provider: s.provider || 'openrouter',
-    model: s.model || 'minimax/minimax-m3:free',
+    model,
     openrouterKey: s.openrouterKey || '',
     moonshotKey: s.moonshotKey || '',
     pollinationsKey: s.pollinationsKey || '',
@@ -177,11 +180,11 @@ async function getResultByExam(examId) {
 
 /* ==================== AI LAYER ==================== */
 const FREE_MODELS = [
-  { id: 'minimax/minimax-m3:free', name: 'MiniMax M3 (مجاني، ممتاز بالعربية)', tag: 'مجاني' },
-  { id: 'nvidia/nemotron-3-super-120b-a12b:free', name: 'NVIDIA Nemotron Super 120B (مجاني)', tag: 'مجاني' },
   { id: 'z-ai/glm-5.2:free', name: 'GLM 5.2 (مجاني، ذكي جداً)', tag: 'مجاني' },
   { id: 'google/gemma-4-31b-it:free', name: 'Google Gemma 4 31B (مجاني)', tag: 'مجاني' },
   { id: 'google/gemma-4-26b-a4b-it:free', name: 'Google Gemma 4 26B (مجاني)', tag: 'مجاني' },
+  { id: 'minimax/minimax-m3:free', name: 'MiniMax M3 (مجاني — قد لا يكون متاحاً)', tag: 'مجاني' },
+  { id: 'nvidia/nemotron-3-super-120b-a12b:free', name: 'NVIDIA Nemotron Super 120B (مجاني)', tag: 'مجاني' },
   { id: 'minimax/minimax-m2.7:free', name: 'MiniMax M2.7 (مجاني)', tag: 'مجاني' },
 ];
 
@@ -405,7 +408,7 @@ function pollinationsDims(aspect) {
 
 async function translateConcept(text, cfg) {
   if (!ARABIC_RE.test(text) || !cfg.openrouterKey) return null;
-  const tmodel = (Array.isArray(FREE_MODELS) && FREE_MODELS[0]?.id) || 'minimax/minimax-m3:free';
+  const tmodel = (Array.isArray(FREE_MODELS) && FREE_MODELS[0]?.id) || 'z-ai/glm-5.2:free';
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 12000);
   try {
