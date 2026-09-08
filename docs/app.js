@@ -24,7 +24,7 @@ const LABELS = {
     ttBooksHint: 'لا توجد كتب بعد — ارفع كتب المناهج من تبويب الكتب أولاً',
     ttStatsBooks: 'كتب', ttStatsUnits: 'درساً', ttStatsDays: 'أيام دراسية', ttStatsHours: 'ساعة/أسبوع',
     ttDayAll: 'كل الأيام',
-    lblVisualExplain: 'شرح بالصور من الكتاب', visualExplain: 'شرح مرئي بالصور', visualExplainShort: 'مرئي', pngTitle: 'حفظ الرسم صورة PNG', pngFail: 'تعذّر حفظ الرسم', aiImageBtn: 'توليد صورة AI', aiImageTitle: 'توليد صورة توضيحية فوتوغرافية لهذا المفهوم', aiImageLoading: 'جارٍ توليد الصورة', aiImageFail: 'تعذّر توليد الصورة — تأكد من مفتاح OpenRouter',
+    lblVisualExplain: 'شرح بالصور من الكتاب', visualExplain: 'شرح مرئي بالصور', visualExplainShort: 'مرئي', lblVision: 'قراءة بالصور (Vision) — النموذج يقرأ صفحات الكتاب مباشرة', pngTitle: 'حفظ الرسم صورة PNG', pngFail: 'تعذّر حفظ الرسم', aiImageBtn: 'توليد صورة AI', aiImageTitle: 'توليد صورة توضيحية فوتوغرافية لهذا المفهوم', aiImageLoading: 'جارٍ توليد الصورة', aiImageFail: 'تعذّر توليد الصورة — تأكد من مفتاح OpenRouter',
     ttsListen: 'استماع للشرح', ttsStop: 'إيقاف', ttsNoText: 'لا يوجد نص للاستماع', ttsUnsupported: 'المتصفح لا يدعم القراءة الصوتية',
     darkOn: 'الوضع الليلي', darkOff: 'الوضع النهاري',
     exportPng: 'حفظ الرسم صورة', printDiagram: 'طباعة الرسم',
@@ -79,7 +79,7 @@ const LABELS = {
     ttBooksHint: 'No books yet — upload your curriculum books first',
     ttStatsBooks: 'books', ttStatsUnits: 'lessons', ttStatsDays: 'study days', ttStatsHours: 'hrs/week',
     ttDayAll: 'Every day',
-    lblVisualExplain: 'Visual explanation with book pages', visualExplain: 'Visual explanation', visualExplainShort: 'Visual', pngTitle: 'Download illustration as PNG', pngFail: 'Could not save image', aiImageBtn: 'Generate AI image', aiImageTitle: 'Generate a photographic illustration for this concept', aiImageLoading: 'Generating image', aiImageFail: 'Could not generate image — check your OpenRouter key',
+    lblVisualExplain: 'Visual explanation with book pages', visualExplain: 'Visual explanation', visualExplainShort: 'Visual', lblVision: 'Read by images (Vision) — the model reads the book pages directly', pngTitle: 'Download illustration as PNG', pngFail: 'Could not save image', aiImageBtn: 'Generate AI image', aiImageTitle: 'Generate a photographic illustration for this concept', aiImageLoading: 'Generating image', aiImageFail: 'Could not generate image — check your OpenRouter key',
     ttsListen: 'Listen to explanation', ttsStop: 'Stop', ttsNoText: 'Nothing to read', ttsUnsupported: 'Your browser does not support text-to-speech',
     darkOn: 'Dark mode', darkOff: 'Light mode',
     exportPng: 'Save diagram as image', printDiagram: 'Print diagram',
@@ -1307,6 +1307,8 @@ function bindLearn() {
       const visualEl = $('#visualExplain');
     const wantVisual = !!(visualEl && visualEl.checked);
     const visualize = wantVisual;
+    const visionEl = $('#visionExplain');
+    const vision = !!(visionEl && visionEl.checked);
     if (wantVisual) {
       const pr = chapterPageRange();
       setStatusChip(L().visualExplainShort);
@@ -1318,7 +1320,7 @@ function bindLearn() {
     try {
       let full = '';
       await streamApi('/api/explain', {
-        bookId: state.learn.bookId, chapterId: state.learn.chapterId, lang: state.lang, visualize,
+        bookId: state.learn.bookId, chapterId: state.learn.chapterId, lang: state.lang, visualize, vision,
       }, {
         signal: controller.signal,
         onNotice: (msg) => {

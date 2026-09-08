@@ -343,9 +343,11 @@ async function* streamChat(msgs, { temperature = 0.4, maxTokens = 8000, model, t
   let usedModel = model || m;
   const url = `${endpointFor(provider)}/chat/completions`;
   const fallbacks = FREE_FALLBACK_MODELS.filter((f) => f !== usedModel);
+  let effMsgs = msgs;
+  let strippedOnce = false;
 
   for (;;) {
-    const body = { model: usedModel, messages: msgs, temperature, max_tokens: maxTokens, stream: true };
+    const body = { model: usedModel, messages: effMsgs, temperature, max_tokens: maxTokens, stream: true };
 
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), timeoutMs);
@@ -361,6 +363,12 @@ async function* streamChat(msgs, { temperature = 0.4, maxTokens = 8000, model, t
     if (!res.ok) {
       let msg = `خطأ من المزوّد (${res.status})`;
       try { const d = await res.json(); msg = d?.error?.message || d?.message || msg; } catch { }
+      if (hasImages(effMsgs) && !strippedOnce && isImageUnsupportedError(msg)) {
+        effMsgs = stripImagesFromMsgs(effMsgs);
+        strippedOnce = true;
+        yield { notice: 'الموديل الحالي لا يقرأ الصور، سأواصل بالنص المستخرج فقط.' };
+        continue;
+      }
       if (isRecoverableFreeError(msg)) {
         const next = fallbacks.shift();
         if (next) {
@@ -1985,8 +1993,77 @@ async function* uploadBookStream(file, title, maxPages) {
 }
 
 /* ==================== EXPLAIN / CHAT / SUMMARIZE ==================== */
+
+/* ---------------- Vision support: let the model READ the page images ---------------- */
+function hasImages(msgs) {
+  return (msgs || []).some((m) => Array.isArray(m.content) && m.content.some((p) => p?.type === 'image_url'));
+}
+
+function stripImagesFromMsgs(msgs) {
+  return (msgs || []).map((m) => {
+    if (typeof m.content === 'string') return m;
+    const texts = (Array.isArray(m.content) ? m.content : [])
+      .filter((p) => p?.type === 'text' || typeof p === 'string')
+      .map((p) => (typeof p === 'string' ? p : p.text || ''));
+    return { ...m, content: texts.join('\n') };
+  });
+}
+
+function isImageUnsupportedError(msg) {
+  const m = String(msg || '').toLowerCase();
+  return /does not support image|image input|image_url|does not accept image|content must be a string|invalid.*image/i.test(m);
+}
+
+async function renderChapterPagesAsDataUrls(bookId, pageStart, pageEnd, max) {
+  const fileBlob = await idbGet('files', bookId);
+  if (!fileBlob) return [];
+  const buf = await fileBlob.arrayBuffer();
+  const pdf = await pdfjs.getDocument({ data: new Uint8Array(buf) }).promise;
+  const a = Math.max(1, +(pageStart || 1));
+  const b = Math.min(pdf.numPages, +pageEnd || +pageStart || pdf.numPages);
+  const total = Math.max(1, b - a + 1);
+  const count = Math.max(1, Math.min(max || 3, total));
+  const step = Math.max(1, Math.floor(total / count));
+  const out = [];
+  for (let i = 0; i < count; i++) {
+    const n = a + i * step;
+    if (n > pdf.numPages) break;
+    try {
+      const page = await pdf.getPage(n);
+      const viewport = page.getViewport({ scale: 1.4 });
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.floor(viewport.width);
+      canvas.height = Math.floor(viewport.height);
+      await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+      const data = canvas.toDataURL('image/jpeg', 0.78);
+      if (data && data.length > 1000) out.push({ page: n, data });
+    } catch (e) { /* skip page */ }
+  }
+  try { pdf.destroy(); } catch { /* ignore */ }
+  return out;
+}
+
+function visionExplainMessages({ bookTitle, chapterTitle, chapterText, lang, visualize, images }) {
+  const base = explainMessages({ bookTitle, chapterTitle, chapterText, lang, visualize });
+  const userText = base.find((m) => m.role === 'user').content;
+  const visionIntro =
+    lang === 'ar'
+      ? '\n\n**مهم جداً:** مرفقة صور لأهم صفحات هذا الفصل كما تظهر في الكتاب. **اعتمد عليها بوصفها المرجع الأساسي** — اقرأ كل صورة بعناية لأنها قد تعرض ما لا ينقله النص جيداً (رسوم، جداول، قوانين مكتوبة بخط اليد، صفحات ممسوحة ضوئياً). اشرح بالاعتماد على ما تراه في الصور، وعند الاقتباس أشر إلى (صورة صفحة N).'
+      : '\n\n**Very important:** The images below are key pages of this chapter exactly as they appear in the book. **Treat them as the primary reference** — read each one carefully, they may show what the text does not convey well (figures, tables, handwritten formulas, scanned pages). Explain based on what you see in the images, and cite them as (page N image) when quoting.';
+  return [
+    base[0],
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: userText + visionIntro },
+        ...images.map((im) => ({ type: 'image_url', image_url: { url: im.data } })),
+      ],
+    },
+  ];
+}
+
 async function* explainStream(body) {
-  const { bookId, chapterId, lang, visualize } = body;
+  const { bookId, chapterId, lang, visualize, vision } = body;
   const book = await getBook(bookId);
   const chapter = await getChapterById(book, chapterId);
   if (!book || !chapter) { yield { type: 'error', error: 'الفصل أو الكتاب غير موجود' }; return; }
@@ -1994,10 +2071,21 @@ async function* explainStream(body) {
   const pages = await getPages(bookId);
   const text = sliceContext(chapterText(pages, chapter), MAX_CTX);
   if (!text.trim()) {
-    yield { type: 'error', error: 'لا يوجد نص مستخرج لهذا الفصل. أعد رفع الكتاب دون تحديد حد أقصى لعدد الصفحات.' };
+    yield { type: 'error', error: 'لا يوجد نص مستخرج لهذا الفصل. فعّل "قراءة بالصور (Vision)" من الأسفل لأفهم الصفحات مباشرة، أو أعد رفع الكتاب.' };
     return;
   }
-  const msgs = explainMessages({ bookTitle: book.title, chapterTitle: chapter.title, chapterText: text, lang, visualize: !!visualize });
+  let msgs = explainMessages({ bookTitle: book.title, chapterTitle: chapter.title, chapterText: text, lang, visualize: !!visualize });
+  if (vision) {
+    try {
+      const imgs = await renderChapterPagesAsDataUrls(bookId, chapter.pageStart, chapter.pageEnd, 3);
+      if (imgs.length) {
+        msgs = visionExplainMessages({ bookTitle: book.title, chapterTitle: chapter.title, chapterText: text, lang, visualize: !!visualize, images: imgs });
+        yield { type: 'notice', message: `وضع القراءة بالصور: سأرفق ${imgs.length} صفحة من الكتاب (${imgs.map((i) => i.page).join('، ')}) وسيفهم النموذج الصور مباشرة.` };
+      }
+    } catch (e) {
+      console.warn('[SmartTutor] تعذّرت قراءة صفحات الكتاب بالصور:', e?.message || e);
+    }
+  }
   for await (const chunk of streamChat(msgs)) {
     if (typeof chunk === 'object' && chunk.notice) yield { type: 'notice', message: chunk.notice };
     else yield { type: 'chunk', text: chunk };
