@@ -597,9 +597,14 @@ async function generateImageHandler(body) {
 let _ocrPromise = null;
 function loadTesseract() {
   if (!_ocrPromise) {
-    _ocrPromise = import('https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.esm.min.mjs')
-      .then((m) => m.default || m)
-      .catch((e) => { _ocrPromise = null; throw new Error('تعذّر تحميل Tesseract.js (' + (e?.message || e) + ')'); });
+    _ocrPromise = new Promise((resolve, reject) => {
+      if (window.Tesseract) { resolve(window.Tesseract); return; }
+      const s = document.createElement('script');
+      s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+      s.onload = () => { window.Tesseract ? resolve(window.Tesseract) : reject(new Error('Tesseract.js فشل التحميل')); };
+      s.onerror = () => reject(new Error('تعذّر تحميل Tesseract.js من الشبكة'));
+      document.head.appendChild(s);
+    });
   }
   return _ocrPromise;
 }
@@ -618,20 +623,23 @@ function guessLang(text) {
   return ar >= en ? 'ara' : 'eng';
 }
 
-async function ocrPage(pdf, page, lang) {
+let _ocrWorker = null;
+let _ocrLang = null;
+async function getOcrWorker(lang) {
   const T = await loadTesseract();
+  if (_ocrWorker && _ocrLang === lang) return _ocrWorker;
+  if (_ocrWorker) { try { await _ocrWorker.terminate(); } catch {} _ocrWorker = null; }
+  _ocrWorker = await T.createWorker(lang, 1, { logger: () => {} });
+  _ocrLang = lang;
+  return _ocrWorker;
+}
+
+async function ocrPage(pdf, page, lang) {
+  const worker = await getOcrWorker(lang);
   const canvas = await renderPageToCanvas(pdf, page);
-  const langs = lang === 'eng' ? 'eng' : 'ara';
-  const worker = await T.createWorker(langs, 1, {
-    logger: () => {},
-  });
-  try {
-    await worker.setParameters({ tessedit_pageseg_mode: '3' });
-    const { data } = await worker.recognize(canvas);
-    return (data?.text || '').trim();
-  } finally {
-    await worker.terminate();
-  }
+  if (!canvas || !canvas.width || !canvas.height) return '';
+  const { data } = await worker.recognize(canvas);
+  return (data?.text || '').trim();
 }
 
 /* ---------------- extractPdf ---------------- */
