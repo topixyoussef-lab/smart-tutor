@@ -214,6 +214,13 @@ function isFreeUnavailableError(msg) {
   return /unavailable for free|unavailable.*free|not proposed for free|no longer free/.test(m);
 }
 
+function isRecoverableFreeError(msg) {
+  if (!msg) return false;
+  const m = String(msg).toLowerCase();
+  if (isFreeUnavailableError(m)) return true;
+  return /provider returned error|no endpoints found|all providers.*failed|upstream.*(error|fail)|temporarily.*(unavailable|down)|try again later/.test(m);
+}
+
 function headersFor(provider, key) {
   const h = {
     Authorization: `Bearer ${key}`,
@@ -304,15 +311,16 @@ async function chat(msgs, { json = false, temperature = 0.4, maxTokens = 8000, r
       if (!content) throw new Error('استجابة فارغة من الموديل.');
       return content;
     } catch (e) {
-      if (isFreeUnavailableError(e?.message)) {
+      if (isRecoverableFreeError(e?.message)) {
         const next = fallbacks.shift();
         if (next) {
-          console.info(`[chat] الموديل (${usedModel}) غير مجاني -> تحويل تلقائي إلى (${next})`);
+          console.info(`[chat] الموديل (${usedModel}) فشل (${e?.message}) -> محاولة تلقائية بـ (${next})`);
           usedModel = next;
           attempt = 0;
           await saveSettings({ model: next });
           continue;
         }
+        throw new Error(`كل الموديلات المجانية المتاحة فشلت الآن (${e?.message}). قد تكون استهلكت حصة اليوم المجانية — جرّب بعد فترة أو اختر موديلاً مدفوعاً من الإعدادات.`);
       }
       if (e?.status === 429 && attempt < retries) {
         await new Promise((r) => setTimeout(r, 3500 * (attempt + 1)));
@@ -353,15 +361,16 @@ async function* streamChat(msgs, { temperature = 0.4, maxTokens = 8000, model, t
     if (!res.ok) {
       let msg = `خطأ من المزوّد (${res.status})`;
       try { const d = await res.json(); msg = d?.error?.message || d?.message || msg; } catch { }
-      if (isFreeUnavailableError(msg)) {
+      if (isRecoverableFreeError(msg)) {
         const next = fallbacks.shift();
         if (next) {
-          console.info(`[streamChat] الموديل (${usedModel}) غير مجاني -> تحويل تلقائي إلى (${next})`);
-          yield { notice: `هذا الموديل توقف عن العمل مجاناً، تم التحويل تلقائياً إلى (${next}) — أُصلحت إعداداتك.` };
+          console.info(`[streamChat] الموديل (${usedModel}) فشل (${msg}) -> محاولة تلقائية بـ (${next})`);
+          yield { notice: `الموديل (${usedModel}) فشل الآن، تم التحويل تلقائياً إلى (${next}) — أُصلحت إعداداتك.` };
           usedModel = next;
           await saveSettings({ model: next });
           continue;
         }
+        msg = `كل الموديلات المجانية المتاحة فشلت الآن (${msg}). قد تكون استهلكت حصة اليوم المجانية — جرّب بعد فترة أو اختر موديلاً مدفوعاً من الإعدادات.`;
       }
       const err = new Error(msg);
       err.status = res.status;
