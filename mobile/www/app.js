@@ -227,7 +227,7 @@ async function api(path, opts = {}) {
 }
 
 // SSE via fetch stream
-async function streamApi(path, body, { onEvent, onChunk, onDone, onError, signal } = {}) {
+async function streamApi(path, body, { onEvent, onChunk, onDone, onError, onNotice, signal } = {}) {
   const isForm = typeof FormData !== 'undefined' && body instanceof FormData;
   const init = {
     method: 'POST',
@@ -258,6 +258,7 @@ async function streamApi(path, body, { onEvent, onChunk, onDone, onError, signal
       if (payload === '[DONE]') continue;
       try {
         const obj = JSON.parse(payload);
+        if (obj.type === 'notice') { onNotice?.(obj.message || ''); continue; }
         if (obj.type === 'error') throw new Error(obj.error || 'خطأ');
         if (onEvent) { onEvent(obj); continue; }
         if (obj.type === 'chunk') onChunk?.(obj.text || '');
@@ -1320,6 +1321,9 @@ function bindLearn() {
         bookId: state.learn.bookId, chapterId: state.learn.chapterId, lang: state.lang, visualize,
       }, {
         signal: controller.signal,
+        onNotice: (msg) => {
+          if (!full) full = `> ⚙️ ${msg}\n\n`;
+        },
         onChunk: (t) => {
           full += t;
           state.explain.md = full;
@@ -1391,6 +1395,9 @@ async function sendChat() {
     await streamApi('/api/chat', {
       bookId: state.learn.bookId, chapterId: state.learn.chapterId, lang: state.lang, history,
     }, {
+      onNotice: (msg) => {
+        if (!full) full = `> ⚙️ ${msg}\n\n`;
+      },
       onChunk: (t) => {
         full += t;
         aiBubble.innerHTML = renderMarkdown(full);

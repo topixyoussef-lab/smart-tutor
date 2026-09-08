@@ -131,9 +131,9 @@ function uid() {
 
 async function getSettings() {
   const s = (await idbGet('kv', 'settings')) || {};
-  const broken = ['minimax/minimax-m3:free'];
-  let model = s.model || 'z-ai/glm-5.2:free';
-  if (broken.includes(model)) model = 'z-ai/glm-5.2:free';
+  const broken = ['minimax/minimax-m3:free', 'z-ai/glm-5.2:free'];
+  let model = s.model || 'google/gemma-4-31b-it:free';
+  if (broken.includes(model)) model = 'google/gemma-4-31b-it:free';
   return {
     provider: s.provider || 'openrouter',
     model,
@@ -180,12 +180,14 @@ async function getResultByExam(examId) {
 
 /* ==================== AI LAYER ==================== */
 const FREE_MODELS = [
-  { id: 'z-ai/glm-5.2:free', name: 'GLM 5.2 (مجاني، ذكي جداً)', tag: 'مجاني' },
-  { id: 'google/gemma-4-31b-it:free', name: 'Google Gemma 4 31B (مجاني)', tag: 'مجاني' },
+  { id: 'google/gemma-4-31b-it:free', name: 'Google Gemma 4 31B (مجاني، قوي)', tag: 'مجاني' },
+  { id: 'inclusionai/ling-3.0-flash-sante:free', name: 'InclusionAI Ling 3.0 Flash (مجاني، الأحدث)', tag: 'مجاني' },
   { id: 'google/gemma-4-26b-a4b-it:free', name: 'Google Gemma 4 26B (مجاني)', tag: 'مجاني' },
-  { id: 'minimax/minimax-m3:free', name: 'MiniMax M3 (مجاني — قد لا يكون متاحاً)', tag: 'مجاني' },
-  { id: 'nvidia/nemotron-3-super-120b-a12b:free', name: 'NVIDIA Nemotron Super 120B (مجاني)', tag: 'مجاني' },
-  { id: 'minimax/minimax-m2.7:free', name: 'MiniMax M2.7 (مجاني)', tag: 'مجاني' },
+  { id: 'nvidia/nemotron-3.5-lightning:free', name: 'NVIDIA Nemotron 3.5 Lightning (مجاني)', tag: 'مجاني' },
+  { id: 'nvidia/nemotron-3-super-120b-a12b:free', name: 'NVIDIA Nemotron 3 Super 120B (مجاني)', tag: 'مجاني' },
+  { id: 'thinkingmachines/inkling:free', name: 'Thinking Machines Inkling (مجاني)', tag: 'مجاني' },
+  { id: 'nvidia/nemotron-3-ultra-550b-a55b:free', name: 'NVIDIA Nemotron 3 Ultra 550B (مجاني)', tag: 'مجاني' },
+  { id: 'openrouter/free', name: 'تحديد تلقائي — أي موديل مجاني متاح', tag: 'مجاني' },
 ];
 
 const MOONSHOT_MODELS = [
@@ -197,6 +199,19 @@ const MOONSHOT_MODELS = [
 function endpointFor(provider) {
   if (provider === 'moonshot') return 'https://api.moonshot.ai/v1';
   return 'https://openrouter.ai/api/v1';
+}
+
+const FREE_FALLBACK_MODELS = [
+  'google/gemma-4-31b-it:free',
+  'inclusionai/ling-3.0-flash-sante:free',
+  'google/gemma-4-26b-a4b-it:free',
+  'nvidia/nemotron-3-super-120b-a12b:free',
+  'openrouter/free',
+];
+
+function isFreeUnavailableError(msg) {
+  const m = String(msg || '').toLowerCase();
+  return /unavailable for free|unavailable.*free|not proposed for free|no longer free/.test(m);
 }
 
 function headersFor(provider, key) {
@@ -246,8 +261,9 @@ function parseJson(text) {
 
 async function chat(msgs, { json = false, temperature = 0.4, maxTokens = 8000, retries = 1, model } = {}) {
   const { provider, model: m, key } = await currentConfig();
-  const usedModel = model || m;
+  let usedModel = model || m;
   const url = `${endpointFor(provider)}/chat/completions`;
+  const fallbacks = FREE_FALLBACK_MODELS.filter((f) => f !== usedModel);
   let attempt = 0;
   while (attempt <= retries) {
     const body = { model: usedModel, messages: msgs };
@@ -288,6 +304,16 @@ async function chat(msgs, { json = false, temperature = 0.4, maxTokens = 8000, r
       if (!content) throw new Error('استجابة فارغة من الموديل.');
       return content;
     } catch (e) {
+      if (isFreeUnavailableError(e?.message)) {
+        const next = fallbacks.shift();
+        if (next) {
+          console.info(`[chat] الموديل (${usedModel}) غير مجاني -> تحويل تلقائي إلى (${next})`);
+          usedModel = next;
+          attempt = 0;
+          await saveSettings({ model: next });
+          continue;
+        }
+      }
       if (e?.status === 429 && attempt < retries) {
         await new Promise((r) => setTimeout(r, 3500 * (attempt + 1)));
         attempt++;
@@ -306,54 +332,69 @@ async function chatJson(msgs, opts = {}) {
 
 async function* streamChat(msgs, { temperature = 0.4, maxTokens = 8000, model, timeoutMs = 90000 } = {}) {
   const { provider, model: m, key } = await currentConfig();
-  const usedModel = model || m;
+  let usedModel = model || m;
   const url = `${endpointFor(provider)}/chat/completions`;
-  const body = { model: usedModel, messages: msgs, temperature, max_tokens: maxTokens, stream: true };
+  const fallbacks = FREE_FALLBACK_MODELS.filter((f) => f !== usedModel);
 
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
-  let res;
-  try {
-    res = await fetch(url, { method: 'POST', headers: headersFor(provider, key), body: JSON.stringify(body), signal: ctrl.signal });
-  } catch (e) {
-    clearTimeout(timer);
-    if (e.name === 'AbortError') throw new Error(`الموديل (${usedModel}) تجاوز الوقت المحدد (${Math.round(timeoutMs / 1000)} ث). جرّب موديلاً آخر من الإعدادات.`);
-    throw e;
-  }
-  clearTimeout(timer);
-  if (!res.ok) {
-    let msg = `خطأ من المزوّد (${res.status})`;
-    try { const d = await res.json(); msg = d?.error?.message || d?.message || msg; } catch { }
-    const err = new Error(msg);
-    err.status = res.status;
-    throw err;
-  }
-  if (!res.body) throw new Error('لا يوجد دفق للاستجابة.');
+  for (;;) {
+    const body = { model: usedModel, messages: msgs, temperature, max_tokens: maxTokens, stream: true };
 
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = '';
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-      for (const line of lines) {
-        const tr = line.trim();
-        if (!tr.startsWith('data:')) continue;
-        const payload = tr.slice(5).trim();
-        if (payload === '[DONE]') continue;
-        try {
-          const data = JSON.parse(payload);
-          const delta = data?.choices?.[0]?.delta?.content;
-          if (delta) yield delta;
-        } catch { /* skip malformed */ }
-      }
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+    let res;
+    try {
+      res = await fetch(url, { method: 'POST', headers: headersFor(provider, key), body: JSON.stringify(body), signal: ctrl.signal });
+    } catch (e) {
+      clearTimeout(timer);
+      if (e.name === 'AbortError') throw new Error(`الموديل (${usedModel}) تجاوز الوقت المحدد (${Math.round(timeoutMs / 1000)} ث). جرّب موديلاً آخر من الإعدادات.`);
+      throw e;
     }
-  } finally {
-    reader.releaseLock();
+    clearTimeout(timer);
+    if (!res.ok) {
+      let msg = `خطأ من المزوّد (${res.status})`;
+      try { const d = await res.json(); msg = d?.error?.message || d?.message || msg; } catch { }
+      if (isFreeUnavailableError(msg)) {
+        const next = fallbacks.shift();
+        if (next) {
+          console.info(`[streamChat] الموديل (${usedModel}) غير مجاني -> تحويل تلقائي إلى (${next})`);
+          yield { notice: `هذا الموديل توقف عن العمل مجاناً، تم التحويل تلقائياً إلى (${next}) — أُصلحت إعداداتك.` };
+          usedModel = next;
+          await saveSettings({ model: next });
+          continue;
+        }
+      }
+      const err = new Error(msg);
+      err.status = res.status;
+      throw err;
+    }
+    if (!res.body) throw new Error('لا يوجد دفق للاستجابة.');
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+        for (const line of lines) {
+          const tr = line.trim();
+          if (!tr.startsWith('data:')) continue;
+          const payload = tr.slice(5).trim();
+          if (payload === '[DONE]') continue;
+          try {
+            const data = JSON.parse(payload);
+            const delta = data?.choices?.[0]?.delta?.content;
+            if (delta) yield delta;
+          } catch { /* skip malformed */ }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    return;
   }
 }
 
@@ -408,7 +449,7 @@ function pollinationsDims(aspect) {
 
 async function translateConcept(text, cfg) {
   if (!ARABIC_RE.test(text) || !cfg.openrouterKey) return null;
-  const tmodel = (Array.isArray(FREE_MODELS) && FREE_MODELS[0]?.id) || 'z-ai/glm-5.2:free';
+  const tmodel = (Array.isArray(FREE_MODELS) && FREE_MODELS[0]?.id) || 'google/gemma-4-31b-it:free';
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 12000);
   try {
@@ -1898,7 +1939,8 @@ async function* explainStream(body) {
   }
   const msgs = explainMessages({ bookTitle: book.title, chapterTitle: chapter.title, chapterText: text, lang, visualize: !!visualize });
   for await (const chunk of streamChat(msgs)) {
-    yield { type: 'chunk', text: chunk };
+    if (typeof chunk === 'object' && chunk.notice) yield { type: 'notice', message: chunk.notice };
+    else yield { type: 'chunk', text: chunk };
   }
   yield { type: 'done' };
 }
@@ -1917,7 +1959,8 @@ async function* chatStream(body) {
   }
   const msgs = chatMessages({ bookTitle: book.title, chapterTitle: chapter.title, chapterText: text, lang, history });
   for await (const chunk of streamChat(msgs)) {
-    yield { type: 'chunk', text: chunk };
+    if (typeof chunk === 'object' && chunk.notice) yield { type: 'notice', message: chunk.notice };
+    else yield { type: 'chunk', text: chunk };
   }
   yield { type: 'done' };
 }
