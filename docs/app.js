@@ -1896,8 +1896,19 @@ function renderCourseLessons(bookId) {
     });
     wrap.appendChild(el);
   });
-  if (state.courses.chapterIdx >= 0 && state.books.find((b) => b.id === bookId)?.chapters?.[state.courses.chapterIdx]) {
-    selectCourseLesson(bookId, state.courses.chapterIdx);
+  if (state.courses.chapterIdx >= 0 && book.chapters?.[state.courses.chapterIdx]) {
+    box.classList.remove('hidden');
+    $('#courseWelcome').classList.add('hidden');
+    const idx = state.courses.chapterIdx;
+    $('#courseTitle').textContent = book.chapters[idx].title || 'الدرس ' + (idx + 1);
+    const nav = $('#coursePartNav');
+    const v = courseState(bookId);
+    nav.innerHTML = COURSE_PARTS_UI.map((p, pi) => {
+      const done = !!v[book.chapters[idx].id + '/' + p.id];
+      const active = pi === state.courses.partIdx;
+      return `<button class="course-chip btn-ghost text-xs px-3 py-1.5 rounded-lg font-bold transition ${active ? 'ring-2 ring-brand-500 bg-brand-50' : ''} ${done ? 'text-green-700' : 'text-slate-600'}">${p.icon} ${esc(coursePartTitle(p.id))}${done ? ' ✓' : ''}</button>`;
+    }).join('');
+    nav.querySelectorAll('.course-chip').forEach((b, pi) => b.addEventListener('click', () => selectCoursePart(bookId, idx, pi)));
   } else {
     box.classList.add('hidden');
     $('#courseWelcome').classList.remove('hidden');
@@ -1908,24 +1919,18 @@ function selectCourseLesson(bookId, idx) {
   const book = state.books.find((b) => b.id === bookId);
   const ch = book?.chapters?.[idx];
   if (!ch) return;
-  $('#courseWelcome').classList.add('hidden');
-  const box = $('#courseBox');
-  box.classList.remove('hidden');
-  $('#courseTitle').textContent = ch.title || 'الدرس ' + (idx + 1);
-  const nav = $('#coursePartNav');
-  const v = courseState(bookId);
-  nav.innerHTML = COURSE_PARTS_UI.map((p, pi) => {
-    const done = !!v[ch.id + '/' + p.id];
-    const active = state.courses.partIdx === pi && state.courses.chapterIdx === idx;
-    return `<button class="course-chip btn-ghost text-xs px-3 py-1.5 rounded-lg font-bold transition ${active ? 'ring-2 ring-brand-500 bg-brand-50' : ''} ${done ? 'text-green-700' : 'text-slate-600'}">${p.icon} ${esc(coursePartTitle(p.id))}${done ? ' ✓' : ''}</button>`;
-  }).join('');
-  nav.querySelectorAll('.course-chip').forEach((b, pi) => b.addEventListener('click', () => {
-    if (state.courses.busy) { toast('انتظر انتهاء التحضير الحالي'); return; }
-    state.courses.partIdx = pi;
-    loadCoursePart(bookId, idx, pi);
-  }));
-  if (state.courses.partIdx < 0 || state.courses.chapterIdx !== idx) state.courses.partIdx = 0;
+  if (state.courses.busy) { toast('انتظر انتهاء تحضير الجزء الحالي'); return; }
+  state.courses.chapterIdx = idx;
+  if (state.courses.partIdx < 0) state.courses.partIdx = 0;
+  renderCourseLessons(bookId);
   loadCoursePart(bookId, idx, state.courses.partIdx);
+}
+
+function selectCoursePart(bookId, idx, pi) {
+  if (state.courses.busy) { toast('انتظر انتهاء تحضير الجزء الحالي'); return; }
+  state.courses.chapterIdx = idx;
+  state.courses.partIdx = pi;
+  loadCoursePart(bookId, idx, pi);
 }
 
 function loadCoursePart(bookId, chapterIdx, partIdx) {
