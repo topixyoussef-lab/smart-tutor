@@ -3,10 +3,9 @@
 //  يعترض استدعاءات /api/* ويجيبها محلياً عبر IndexedDB + pdf.js
 //  + استدعاء مباشر لمزوّد الذكاء الاصطناعي من المتصفح.
 // ============================================================
-import * as pdfjs from 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.8.69/legacy/build/pdf.min.mjs';
+import * as pdfjs from './vendor/pdf.min.mjs';
 
-pdfjs.GlobalWorkerOptions.workerSrc =
-  'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.8.69/legacy/build/pdf.worker.min.mjs';
+pdfjs.GlobalWorkerOptions.workerSrc = './vendor/pdf.worker.min.mjs';
 
 const MAX_CTX = 14000;
 
