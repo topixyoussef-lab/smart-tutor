@@ -56,6 +56,8 @@ const LABELS = {
     deleteConfirm: 'متأكد من الحذف؟', examNewCreated: 'تم إنشاؤه', noKeyNote: 'يرجى إضافة مفتاح API في الإعدادات أولاً',
     progressGrading: 'جاري تصحيح الامتحان...', progressQuestion: 'السؤال', progressAnalysis: 'جاري تحليل نقاط الضعف...',
     gradeProgressError: 'خطأ أثناء التصحيح', gradeProgressDone: 'تم التصحيح بالكامل',
+    tabCourses: 'الكورس', courseEmpty: 'لا توجد كتب بعد — ارفع كتب المناهج من تبويب الكتب أولاً', courseWelcome: 'اختر درساً من القائمة لبدء الكورس، وكل درس جزء خطة: الهدف ← الشرح ← القوانين ← أمثلة ← اختبار.',
+    courseLesson: 'الهدف', courseExplain: 'الشرح', courseLaws: 'القوانين', courseExamples: 'أمثلة', courseQuiz: 'اختبار', coursePickBook: 'اختر الكتاب', courseProgress: 'تقدم الكورس', courseVisionLabel: 'قراءة بالصور عند الحاجة', courseEdge: 'وصلت لنهاية الكورس', checkMyAnswers: 'تحقق من إجاباتي', courseScore: 'نتيجتك: {a}/{b}',
   },
   en: {
     tagline: 'Upload your book, learn it, and test yourself with AI',
@@ -111,6 +113,8 @@ const LABELS = {
     deleteConfirm: 'Delete?', examNewCreated: 'Created', noKeyNote: 'Please add an API key in Settings first',
     progressGrading: 'Grading exam...', progressQuestion: 'Question', progressAnalysis: 'Analyzing weak topics...',
     gradeProgressError: 'Grading error', gradeProgressDone: 'Grading complete',
+    tabCourses: 'Course', courseEmpty: 'No books yet — upload curriculum books from the Library tab first', courseWelcome: 'Pick a lesson to start the course; each lesson is a plan: Goal ← Explain ← Laws ← Examples ← Quiz.',
+    courseLesson: 'Goal', courseExplain: 'Explain', courseLaws: 'Laws', courseExamples: 'Examples', courseQuiz: 'Quiz', coursePickBook: 'Choose book', courseProgress: 'Course progress', courseVisionLabel: 'Read with images when needed', courseEdge: 'End of course', checkMyAnswers: 'Check my answers', courseScore: 'Your score: {a}/{b}',
   },
 };
 
@@ -129,6 +133,7 @@ let state = {
   explain: { controller: null, md: '', images: [], aiImages: [] },
   currentResultId: null,
   uploadBusy: false,
+  courses: { bookId: null, chapterIdx: -1, partIdx: -1, busy: false, visited: {}, cached: {} },
 };
 
 /* ---------------- helpers ---------------- */
@@ -300,6 +305,7 @@ function switchTab(name) {
   if (name === 'exams') renderExamsView();
   if (name === 'results') renderResultsView();
   if (name === 'timetable') renderTimetable();
+  if (name === 'courses') renderCourses();
   if (name === 'settings') renderSettings();
   window.scrollTo({ top: 0 });
 }
@@ -1804,6 +1810,308 @@ async function loadBooks() {
   state.books = books;
 }
 
+/* ================= COURSES (per-book course, parts per lesson) ================= */
+const COURSE_PARTS_UI = [
+  { id: 'lesson', icon: '🎯' },
+  { id: 'explain', icon: '📖' },
+  { id: 'laws', icon: '🧠' },
+  { id: 'examples', icon: '✏️' },
+  { id: 'quiz', icon: '❓' },
+];
+function coursePartTitle(id) {
+  const d = { lesson: 'الهدف من الدرس', explain: 'شرح الدرس بالتفصيل', laws: 'القوانين والقواعد', examples: 'أمثلة محلولة', quiz: 'اختبار سريع' };
+  const e = { lesson: 'Lesson goals', explain: 'Detailed explanation', laws: 'Rules & formulas', examples: 'Worked examples', quiz: 'Quick quiz' };
+  return (state.lang === 'ar' ? d : e)[id] || id;
+}
+function courseState(bookId) {
+  const key = 'courseVisited-' + bookId;
+  if (!state.courses.visited[bookId]) {
+    try { state.courses.visited[bookId] = JSON.parse(localStorage.getItem(key) || '{}'); } catch { state.courses.visited[bookId] = {}; }
+  }
+  return state.courses.visited[bookId];
+}
+function coursePct(bookId, chapterId) {
+  const v = courseState(bookId);
+  return COURSE_PARTS_UI.filter((p) => v[chapterId + '/' + p.id]).length;
+}
+function bindCourseBookChange(sel) {
+  if (sel._courseBound) return;
+  sel._courseBound = true;
+  sel.addEventListener('change', () => {
+    state.courses.bookId = sel.value;
+    state.courses.chapterIdx = -1;
+    state.courses.partIdx = -1;
+    renderCourseLessons(sel.value);
+    updateCourseProgress(sel.value);
+  });
+}
+
+function renderCourses() {
+  const sel = $('#courseBook');
+  if (!sel) return;
+  const prev = state.courses.bookId;
+  sel.innerHTML = '';
+  (state.books || []).forEach((b) => {
+    const o = document.createElement('option');
+    o.value = b.id; o.textContent = b.title;
+    sel.appendChild(o);
+  });
+  if (state.books.length) {
+    $('#courseEmpty').classList.add('hidden');
+    $('#courseMain').classList.remove('hidden');
+    const want = prev && state.books.some((b) => b.id === prev) ? prev : state.books[0].id;
+    sel.value = want;
+    state.courses.bookId = want;
+    bindCourseBookChange(sel);
+    renderCourseLessons(want);
+    updateCourseProgress(want);
+  } else {
+    $('#courseEmpty').classList.remove('hidden');
+    $('#courseEmpty').textContent = L().courseEmpty || 'لا توجد كتب بعد — ارفع كتب المناهج من تبويب الكتب أولاً';
+    $('#courseMain').classList.add('hidden');
+  }
+}
+
+function renderCourseLessons(bookId) {
+  const wrap = $('#courseLessons');
+  const box = $('#courseBox');
+  if (!wrap) return;
+  const book = state.books.find((b) => b.id === bookId);
+  if (!book) return;
+  wrap.innerHTML = '';
+  (book.chapters || []).forEach((ch, idx) => {
+    const done = coursePct(bookId, ch.id);
+    const el = document.createElement('button');
+    el.className = 'w-full text-start card p-3 cursor-pointer hover:ring-2 hover:ring-brand-300 transition ' + (state.courses.chapterIdx === idx ? 'ring-2 ring-brand-500' : '');
+    el.innerHTML = `<div class="flex items-center justify-between gap-2">
+        <span class="text-sm font-extrabold text-brand-900 truncate flex-1">${esc(ch.title)}</span>
+        <span class="text-xs text-slate-400 font-bold shrink-0">${done}/${COURSE_PARTS_UI.length}</span>
+      </div>
+      <div class="w-full bg-slate-100 h-1.5 rounded-full mt-2"><div class="h-full bg-green-500 rounded-full transition-all" style="width:${Math.round((done / COURSE_PARTS_UI.length) * 100)}%"></div></div>`;
+    el.addEventListener('click', () => {
+      state.courses.chapterIdx = idx;
+      state.courses.partIdx = -1;
+      renderCourseLessons(bookId);
+      selectCourseLesson(bookId, idx);
+    });
+    wrap.appendChild(el);
+  });
+  if (state.courses.chapterIdx >= 0 && state.books.find((b) => b.id === bookId)?.chapters?.[state.courses.chapterIdx]) {
+    selectCourseLesson(bookId, state.courses.chapterIdx);
+  } else {
+    box.classList.add('hidden');
+    $('#courseWelcome').classList.remove('hidden');
+  }
+}
+
+function selectCourseLesson(bookId, idx) {
+  const book = state.books.find((b) => b.id === bookId);
+  const ch = book?.chapters?.[idx];
+  if (!ch) return;
+  $('#courseWelcome').classList.add('hidden');
+  const box = $('#courseBox');
+  box.classList.remove('hidden');
+  $('#courseTitle').textContent = ch.title || 'الدرس ' + (idx + 1);
+  const nav = $('#coursePartNav');
+  const v = courseState(bookId);
+  nav.innerHTML = COURSE_PARTS_UI.map((p, pi) => {
+    const done = !!v[ch.id + '/' + p.id];
+    const active = state.courses.partIdx === pi && state.courses.chapterIdx === idx;
+    return `<button class="course-chip btn-ghost text-xs px-3 py-1.5 rounded-lg font-bold transition ${active ? 'ring-2 ring-brand-500 bg-brand-50' : ''} ${done ? 'text-green-700' : 'text-slate-600'}">${p.icon} ${esc(coursePartTitle(p.id))}${done ? ' ✓' : ''}</button>`;
+  }).join('');
+  nav.querySelectorAll('.course-chip').forEach((b, pi) => b.addEventListener('click', () => {
+    if (state.courses.busy) { toast('انتظر انتهاء التحضير الحالي'); return; }
+    state.courses.partIdx = pi;
+    loadCoursePart(bookId, idx, pi);
+  }));
+  if (state.courses.partIdx < 0 || state.courses.chapterIdx !== idx) state.courses.partIdx = 0;
+  loadCoursePart(bookId, idx, state.courses.partIdx);
+}
+
+function loadCoursePart(bookId, chapterIdx, partIdx) {
+  const book = state.books.find((b) => b.id === bookId);
+  const ch = book?.chapters?.[chapterIdx];
+  const part = COURSE_PARTS_UI[partIdx];
+  if (!book || !ch || !part) return;
+  if (state.courses.busy) return;
+  state.courses.busy = true;
+  state.courses.chapterIdx = chapterIdx;
+  state.courses.partIdx = partIdx;
+  const content = $('#courseContent');
+  const key = ch.id + '/' + part.id;
+  const visited = courseState(bookId);
+  content.innerHTML = '<div class="spinner mx-auto my-8"></div>';
+  $('#courseNextBtn').classList.add('hidden');
+  $('#coursePrevBtn').classList.add('hidden');
+  updateCourseProgress(bookId);
+  navCourseChips(bookId, chapterIdx);
+
+  state.courses.cached = state.courses.cached || {};
+  if (state.courses.cached[key] && !part.forceReload) {
+    if (part.id === 'quiz') { renderCourseQuiz(bookId, key, state.courses.cached[key]); doneCoursePart(); return; }
+    content.innerHTML = renderMarkdown(state.courses.cached[key]);
+    wireSvgPngButtons(content);
+    doneCoursePart();
+    return;
+  }
+
+  const errorBox = (msg) => { content.innerHTML = '<div class="text-rose-600 font-bold">خطأ: ' + esc(msg) + '</div>'; };
+  const payload = { bookId, chapterId: ch.id, partType: part.id, lang: state.lang, vision: !!($('#courseVision') && $('#courseVision').checked) };
+
+  if (part.id === 'quiz') {
+    let questions = null;
+    streamApi('/api/course-part', payload, {
+      onEvent: (obj) => {
+        if (obj.type === 'error') throw new Error(obj.error || 'خطأ');
+        if (obj.type === 'quiz') questions = obj.questions;
+      },
+      onError: (msg) => { errorBox(msg); state.courses.busy = false; },
+    }).then(() => {
+      if (!questions || !questions.length) { errorBox('الموديل لم يُرجع أسئلة صحيحة.'); state.courses.busy = false; return; }
+      visited[key] = 1;
+      localStorage.setItem('courseVisited-' + bookId, JSON.stringify(visited));
+      state.courses.cached[key] = questions;
+      renderCourseQuiz(bookId, key, questions);
+      doneCoursePart();
+    }).catch((e) => { errorBox(e?.message || e); state.courses.busy = false; });
+    return;
+  }
+
+  let started = false;
+  let full = '';
+  streamApi('/api/course-part', payload, {
+    onChunk: (t) => {
+      started = true;
+      full += t;
+      content.innerHTML = renderMarkdown(full);
+      wireSvgPngButtons(content);
+    },
+    onError: (msg) => { errorBox(msg); state.courses.busy = false; },
+  }).then(() => {
+    if (!started && !full) { errorBox('لم تُنتج إجابة — جرّب مرة أخرى أو فعّل "قراءة بالصور".'); state.courses.busy = false; return; }
+    visited[key] = 1;
+    localStorage.setItem('courseVisited-' + bookId, JSON.stringify(visited));
+    state.courses.cached[key] = full;
+    doneCoursePart();
+  }).catch((e) => { errorBox(e?.message || e); state.courses.busy = false; });
+}
+
+function doneCoursePart() {
+  state.courses.busy = false;
+  const bookId = state.courses.bookId;
+  updateCourseProgress(bookId);
+  renderCourseLessons(bookId);
+  navCourseChips(bookId, state.courses.chapterIdx);
+  showCourseNavs(bookId);
+}
+
+function navCourseChips(bookId, chapterIdx) {
+  const box = $('#courseBox');
+  if (!box) return;
+  const ch = state.books.find((b) => b.id === bookId)?.chapters?.[chapterIdx];
+  if (!ch) return;
+  box.querySelectorAll('.course-chip').forEach((b, pi) => {
+    const v = courseState(bookId);
+    const done = !!v[ch.id + '/' + COURSE_PARTS_UI[pi].id];
+    const active = pi === state.courses.partIdx && chapterIdx === state.courses.chapterIdx;
+    b.className = 'course-chip btn-ghost text-xs px-3 py-1.5 rounded-lg font-bold transition ' + (active ? 'ring-2 ring-brand-500 bg-brand-50' : '') + ' ' + (done ? 'text-green-700' : 'text-slate-600');
+    b.textContent = COURSE_PARTS_UI[pi].icon + ' ' + coursePartTitle(COURSE_PARTS_UI[pi].id) + (done ? ' ✓' : '');
+  });
+}
+
+function renderCourseQuiz(bookId, key, questions) {
+  const content = $('#courseContent');
+  const l = L();
+  content.innerHTML = questions.map((q, qi) => `
+    <div class="card p-4 mb-4" data-q="${qi}">
+      <div class="flex items-start gap-2">
+        <span class="font-extrabold text-brand-700 shrink-0">${qi + 1}.</span>
+        <div class="font-bold text-slate-800 md-wrap">${renderMarkdown(String(q.question || '').trim())}</div>
+      </div>
+      <div class="mt-3 space-y-2">
+        ${(q.options || []).map((o, oi) => `
+          <label class="q-option flex items-center gap-2 bg-slate-50 hover:bg-brand-50 rounded-lg px-3 py-2 cursor-pointer border border-slate-200" data-oi="${oi}">
+            <input type="radio" name="course-q${qi}" value="${oi}" class="accent-brand-500">
+            <span class="text-sm font-bold text-slate-700 md-wrap">${renderMarkdown(String(o))}</span>
+          </label>`).join('')}
+      </div>
+      <div class="mt-2 text-xs font-bold text-green-700 hidden answer-ok">✅ ${q.answerIndex != null && (q.options || [])[q.answerIndex] ? 'الإجابة الصحيحة: ' + esc(String((q.options || [])[q.answerIndex])) : ''}${q.explanation ? ' — ' + esc(String(q.explanation).slice(0, 220)) : ''}</div>
+    </div>`).join('') + `<div class="mt-4"><button class="btn-primary w-full" id="courseQuizCheck">${l.checkMyAnswers || 'تحقق من إجاباتي'}</button></div>`;
+  content.querySelectorAll('.q-option').forEach((opt) => opt.addEventListener('click', () => {
+    const input = opt.querySelector('input');
+    const name = input.name;
+    content.querySelectorAll(`input[name="${name}"]`).forEach((x) => { x.checked = false; x.closest('.q-option').classList.remove('selected'); });
+    input.checked = true;
+    opt.classList.add('selected');
+  }));
+  const check = content.querySelector('#courseQuizCheck');
+  check.addEventListener('click', () => {
+    let score = 0;
+    questions.forEach((q, qi) => {
+      const sel = content.querySelector(`input[name="course-q${qi}"]:checked`);
+      const ok = sel && parseInt(sel.value, 10) === q.answerIndex;
+      if (ok) score++;
+      const card = content.querySelector(`[data-q="${qi}"]`);
+      const okEl = card.querySelector('.answer-ok');
+      okEl.classList.remove('hidden');
+      if (ok) okEl.innerHTML = '✅ ' + okEl.textContent;
+      else okEl.innerHTML = '❌ ' + okEl.textContent;
+    });
+    toast((l.courseScore || 'نتيجتك: {a}/{b}').replace('{a}', score).replace('{b}', questions.length), score === questions.length ? 'success' : '');
+  });
+}
+
+function updateCourseProgress(bookId) {
+  const book = state.books.find((b) => b.id === bookId);
+  if (!book) return;
+  const v = courseState(bookId);
+  const ids = Object.keys(v).filter((k) => v[k]).length;
+  const total = Math.max(1, (book.chapters?.length || 0) * COURSE_PARTS_UI.length);
+  const pct = Math.round((ids / total) * 100);
+  const fill = $('#courseProgressFill');
+  const txt = $('#courseProgressText');
+  if (fill) fill.style.width = pct + '%';
+  if (txt) txt.textContent = `${ids} / ${total} — ${pct}%`;
+}
+
+function showCourseNavs(bookId) {
+  const book = state.books.find((b) => b.id === bookId);
+  if (!book) return;
+  const chCount = (book.chapters || []).length;
+  const prevBtn = $('#coursePrevBtn');
+  const nextBtn = $('#courseNextBtn');
+  const hasPrev = state.courses.chapterIdx > 0 || state.courses.partIdx > 0;
+  const hasNext = state.courses.chapterIdx < chCount - 1 || state.courses.partIdx < COURSE_PARTS_UI.length - 1;
+  prevBtn.classList.toggle('hidden', !hasPrev);
+  prevBtn.onclick = () => goCourse(-1);
+  nextBtn.classList.toggle('hidden', !hasNext);
+  nextBtn.onclick = () => goCourse(1);
+  $('#coursePartBackBtn').classList.toggle('hidden', state.courses.chapterIdx === -1);
+  $('#coursePartBackBtn').onclick = () => {
+    const box = $('#courseBox');
+    box.classList.add('hidden');
+    $('#courseWelcome').classList.remove('hidden');
+    state.courses.chapterIdx = -1; state.courses.partIdx = -1;
+    renderCourseLessons(bookId);
+  };
+}
+
+function goCourse(dir) {
+  if (state.courses.busy) { toast('انتظر انتهاء التحضير'); return; }
+  let ci = state.courses.chapterIdx;
+  let pi = state.courses.partIdx;
+  const book = state.books.find((b) => b.id === state.courses.bookId);
+  const chCount = (book?.chapters || []).length;
+  pi += dir;
+  if (pi < 0) { ci--; pi = COURSE_PARTS_UI.length - 1; }
+  if (pi >= COURSE_PARTS_UI.length) { ci++; pi = 0; }
+  if (ci < 0 || ci >= chCount) { toast(L().courseEdge || 'وصلت لنهاية الكورس'); return; }
+  state.courses.chapterIdx = ci;
+  state.courses.partIdx = pi;
+  renderCourseLessons(state.courses.bookId);
+  selectCourseLesson(state.courses.bookId, ci);
+}
+
 async function loadExams() {
   const { exams } = await api('/api/exams');
   state.exams = exams;
@@ -1841,6 +2149,7 @@ async function init() {
     renderExamFormBook();
     renderExamsList();
     renderResultsView();
+    renderCourses();
   } catch (e) {
     console.error(e);
   }
@@ -1869,6 +2178,7 @@ function bindSettings() {
     if (state.currentTab === 'learn') renderLearn();
     if (state.currentTab === 'exams') { renderExamFormBook(); renderExamsList(); }
     if (state.currentTab === 'results') renderResultsView();
+    if (state.currentTab === 'courses') renderCourses();
   });
   $('#examLang').addEventListener('change', (e) => state.examLang = e.target.value);
 }

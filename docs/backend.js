@@ -12,8 +12,8 @@ const MAX_CTX = 14000;
 
 /* ==================== STORAGE (IndexedDB) ==================== */
 const DB_NAME = 'smart-tutor-db';
-const DB_VERSION = 1;
-const STORE_NAMES = ['kv', 'books', 'pages', 'exams', 'results', 'files'];
+const DB_VERSION = 2;
+const STORE_NAMES = ['kv', 'books', 'pages', 'exams', 'results', 'files', 'courses'];
 let _dbPromise = null;
 
 function openDb() {
@@ -543,6 +543,88 @@ async function generateViaGemini(theme, aspect, key) {
     }
   }
   throw new Error(lastErr || 'فشل توليد صورة Gemini.');
+}
+
+/* ---------------- Gemini Vision: the model READS the page images ---------------- */
+const GEMINI_VISION_MODELS = ['gemini-2.5-flash', 'gemini-2.5-pro', 'gemini-3-flash'];
+
+function geminiStreamUrl(model, key) {
+  return `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${encodeURIComponent(String(key).trim())}`;
+}
+
+async function* geminiVisionStream(contents, geminiKey, { systemText = null } = {}) {
+  let lastErr = null;
+  for (const model of GEMINI_VISION_MODELS) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 60000);
+    try {
+      const body = { contents, generationConfig: { temperature: 0.4, maxOutputTokens: 9000 } };
+      if (systemText) body.systemInstruction = { parts: [{ text: systemText }] };
+      const res = await fetch(geminiStreamUrl(model, geminiKey), {
+        method: 'POST',
+        signal: ctrl.signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      clearTimeout(timer);
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}));
+        lastErr = String(d?.error?.message || 'Gemini (' + res.status + ')');
+        if (res.status === 429) break;
+        continue;
+      }
+      const reader = res.body.getReader();
+      const dec = new TextDecoder();
+      let buf = '';
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          const lines = buf.split('\n');
+          buf = lines.pop() || '';
+          for (const ln of lines) {
+            const tr = ln.trim();
+            if (!tr.startsWith('data:')) continue;
+            try {
+              const obj = JSON.parse(tr.slice(5).trim());
+              const parts = obj?.candidates?.[0]?.content?.parts || [];
+              for (const p of parts) { if (p.text) yield p.text; }
+            } catch { /* skip */ }
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+      return;
+    } catch (e) {
+      clearTimeout(timer);
+      lastErr = e?.name === 'AbortError' ? 'Gemini تجاوز الوقت' : String(e?.message || e);
+      if (e?.name === 'AbortError') break;
+    }
+  }
+  throw new Error(lastErr || 'Gemini Vision غير متاح.');
+}
+
+/* يبني طلب Gemini بصيغته (inlineData) من صور الصفحات + نص تعليمي */
+function geminiVisionContents({ images, userText, systemText, lang }) {
+  const sys = systemText || (
+    lang === 'ar'
+      ? 'أنت "المُدرِّس الذكي" — تقرا صور صفحات الكتب وتشرحها للطالب. اعتمد على الصور المرفقة بوصفها المرجع الأساسي، واقرأ كل صورة بعناية (نصوص، قوانين، جداول، رسوم). لا تخترع ما ليس في الصور.'
+      : 'You are Smart Tutor reading book pages. Rely on the attached images as the primary reference and read each one carefully (text, laws, tables, figures). Never invent content that is not there.'
+  );
+  return {
+    systemText: sys,
+    contents: [
+      {
+        role: 'user',
+        parts: [
+          ...images.map((im) => ({ inlineData: { mimeType: 'image/jpeg', data: im.data.split(',')[1] } })),
+          { text: userText },
+        ],
+      },
+    ],
+  };
 }
 
 async function generateViaPollinations(theme, aspect, token) {
@@ -1255,6 +1337,127 @@ async function quickquizHandler(body) {
   return { quiz: { question: q, options: cleaned, answerIndex, explanation: data.explanation || '' } };
 }
 
+/* ==================== COURSE BUILDER (per-book course, parts per lesson) ==================== */
+const COURSE_PARTS = [
+  { id: 'lesson', icon: '🎯', key: 'coursePartLesson' },
+  { id: 'explain', icon: '📖', key: 'coursePartExplain' },
+  { id: 'laws', icon: '🧠', key: 'coursePartLaws' },
+  { id: 'examples', icon: '✏️', key: 'coursePartExamples' },
+  { id: 'quiz', icon: '❓', key: 'coursePartQuiz' },
+];
+function coursePartLabels(lang) {
+  return {
+    lesson: lang === 'ar' ? 'الهدف من الدرس' : 'Lesson goals',
+    explain: lang === 'ar' ? 'شرح الدرس بالتفصيل' : 'Detailed explanation',
+    laws: lang === 'ar' ? 'القوانين والقواعد' : 'Rules & formulas',
+    examples: lang === 'ar' ? 'أمثلة محلولة' : 'Worked examples',
+    quiz: lang === 'ar' ? 'اختبار سريع' : 'Quick quiz',
+  };
+}
+function coursePartSystem(lang) {
+  return systemTeacher(lang);
+}
+function coursePartMessages({ partType, bookTitle, chapterTitle, chapterText, lang }) {
+  const sys = coursePartSystem(lang);
+  const head = `**الكتاب:** ${bookTitle}\n**الفصل:** ${chapterTitle}\n\n**نص الفصل من الكتاب:**\n${chapterText}`;
+  let user = '';
+  if (partType === 'lesson') {
+    user = lang === 'ar'
+      ? `بيّن هدف هذا الدرس ومرجعيته في الامتحان باختصار (فقرتان قصيرتان): ماذا سيتعلم الطالب بالضبط، وما المفاهيم الرئيسية التي سيحتاجها.\n\n${head}`
+      : `Briefly state the lesson goals and its importance for tests (two short paragraphs): what exactly the student will learn and the key concepts needed.\n\n${head}`;
+  } else if (partType === 'explain') {
+    user = lang === 'ar'
+      ? `اشرح هذا الدرس شرحاً تفصيلياً على مستوى الطالب: عناوين واضحة، شرح كل مفهوم تدريجياً، القوانين بصيغة LaTeX إن وُجدت، تعريفات مهمة بخط عريض، ومسائل تربط الأفكار. لا تخترع معلومات ليست في النص.\n\n${head}`
+      : `Explain this lesson in detail at student level: clear headings, build each concept step by step, formulas in LaTeX where present, key definitions in bold, and exercises linking the ideas. Do not invent facts not in the text.\n\n${head}`;
+  } else if (partType === 'laws') {
+    user = lang === 'ar'
+      ? `استخرج أهم القوانين والقواعد والعلاقات والتعريفات في هذا الدرس ومرتّباً بقائمة نقطية. كل نقطة: اسم القاعدة، صيغتها الرياضية LaTeX إن وُجدت، وسطر واحد يوضح متى وأين تُستخدم. ركّز على ما يكثر في الاختبارات.\n\n${head}`
+      : `Extract the most important laws, rules, formulas and definitions of this lesson as a bullet list. Each item: name, mathematical form in LaTeX if any, and one line on when/where to use it. Focus on what exams often test.\n\n${head}`;
+  } else if (partType === 'examples') {
+    user = lang === 'ar'
+      ? `أعط **3 أمثلة محلولة** من هذا الدرس بالاعتماد على الكتاب، متنوعة الصعوبة. لكل مثال: المسألة، خطوات الحل كاملة خطوة بخطوة بطريقة الطالب، الإجابة النهائية، وملاحظة "خطأ شائع" قصيرة. لا تخترع أرقاماً ليست في الكتاب.\n\n${head}`
+      : `Give **3 solved examples** from this lesson based on the book, with increasing difficulty. Each: the problem, full step-by-step solution in student style, the final answer, and a short "common mistake" note. Do not invent numbers not in the book.\n\n${head}`;
+  }
+  return [sys, { role: 'user', content: user }];
+}
+function courseQuizMessages({ bookTitle, chapterTitle, chapterText, lang }) {
+  const sys = coursePartSystem(lang);
+  const user = lang === 'ar'
+    ? `أنشئ **5 أسئلة اختيار من متعدد** من هذا الدرس على مستوى الطالب. عليك إرجاع JSON فقط بهذا الشكل:\n{"questions":[{"question":"السؤال","options":["أ","ب","ج","د"],"answerIndex":0,"explanation":"شرح مختصر للإجابة لحظة العرض","points":1}]}\n- الأسئلة تعتمد على نص الكتاب حصراً.\n- تنوّع الأسئلة بين مفاهيمية ومسائل بسيطة.\n\n**الكتاب:** ${bookTitle}\n**الفصل:** ${chapterTitle}\n\n**نص الفصل:**\n${chapterText}`
+    : `Create **5 multiple-choice questions** from this lesson at student level. Return JSON ONLY in the shape:\n{"questions":[{"question":"..","options":["a","b","c","d"],"answerIndex":0,"explanation":"short explanation","points":1}]}\n- Questions must rely only on the book text.\n- Mix conceptual and simple calculation questions.\n\n**Book:** ${bookTitle}\n**Chapter:** ${chapterTitle}\n\n**Chapter text:**\n${chapterText}`;
+  return [sys, { role: 'user', content: user }];
+}
+
+async function* coursePartStream(body) {
+  const { bookId, chapterId, partType, lang, vision } = body;
+  const book = await getBook(bookId);
+  const chapter = await getChapterById(book, chapterId);
+  if (!book || !chapter) { yield { type: 'error', error: 'الدرس غير موجود' }; return; }
+  yield { type: 'start' };
+  const settings = await getSettings();
+  const geminiKey = settings.geminiKey;
+  const pages = await getPages(bookId);
+  const text = sliceContext(chapterText(pages, chapter), MAX_CTX);
+  if (!text.trim() && !(vision && geminiKey)) {
+    yield { type: 'error', error: 'لا يوجد نص مستخرج لهذا الدرس — فعّل "قراءة بالصور (Vision)" مع مفتاح Gemini.' };
+    return;
+  }
+
+  if (partType === 'quiz') {
+    const msgs = courseQuizMessages({ bookTitle: book.title, chapterTitle: chapter.title, chapterText: text, lang });
+    let parsed;
+    try {
+      const out = await chat(msgs, { json: true, maxTokens: 6000, temperature: 0.5 });
+      parsed = parseJson(out);
+    } catch (e) {
+      yield { type: 'error', error: e?.message || 'تعذّر توليد الاختبار.' };
+      return;
+    }
+    const pointsMap = { mcq: 1, concept: 2, problem: 3 };
+    const questions = (parsed?.questions || []).map((q, i) => ({
+      id: `course-q-${i + 1}`,
+      type: 'mcq',
+      topic: String(q.topic || '').slice(0, 120) || 'مفهوم',
+      points: pointsMap[q.type] || q.points || 1,
+      question: String(q.question || '').trim(),
+      options: Array.isArray(q.options) ? q.options.map((o) => String(o).trim()) : [],
+      answerIndex: q.answerIndex,
+      modelAnswer: String(q.modelAnswer || q.explanation || '').trim(),
+      explanation: String(q.explanation || '').trim(),
+    })).filter((q) => q.question && q.options.length >= 2);
+    yield { type: 'quiz', questions };
+    return;
+  }
+
+  let texts = coursePartMessages({ partType, bookTitle: book.title, chapterTitle: chapter.title, chapterText: text, lang });
+  let viaGemini = null;
+  if (vision && geminiKey) {
+    try {
+      const imgs = await renderChapterPagesAsDataUrls(bookId, chapter.pageStart, chapter.pageEnd, 2);
+      if (imgs.length) {
+        const gv = geminiVisionContents({
+          images: imgs,
+          userText: (texts.find((m) => m.role === 'user')?.content || '') + '\n\n**مهم:** الصور المرفقة هي صفحات هذا الدرس من الكتاب — اقرأها بعناية واعتمد عليها مع النص.',
+          lang,
+        });
+        viaGemini = { key: geminiKey, contents: gv.contents, systemText: 'متطلبات الكتاب' };
+      }
+    } catch (e) { /* fall through to text */ }
+  }
+  let started = false;
+  const emit = (t) => { if (t) { started = true; yield { type: 'chunk', text: t }; } };
+  if (viaGemini) {
+    for await (const chunk of geminiVisionStream(viaGemini.contents, viaGemini.key, { systemText: null || texts[0]?.content })) emit(chunk);
+  } else {
+    for await (const chunk of streamChat(texts)) {
+      if (typeof chunk === 'object' && chunk.notice) yield { type: 'notice', message: chunk.notice };
+      else emit(chunk);
+    }
+  }
+  if (started) yield { type: 'done' };
+  else { yield { type: 'error', error: 'لم تُنتج إجابة — جرّب مرة أخرى أو فعّل القراءة بالصور.' }; }
+}
+
 /* ==================== TIMETABLE GENERATOR ==================== */
 const DAYS_AR = ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
 const DAYS_EN = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
@@ -1792,6 +1995,10 @@ async function handleApi(method, pathname, init) {
     const body = (await readJsonBody(init)) || {};
     return jsonResponse(diagramHandler(body));
   }
+  if (pathname === '/api/course-part' && method === 'POST') {
+    const body = (await readJsonBody(init)) || {};
+    return sseResponse(coursePartStream(body));
+  }
 
   // ---------- study aids ----------
   if (pathname === '/api/flashcards' && method === 'POST') {
@@ -2075,16 +2282,42 @@ async function* explainStream(body) {
     return;
   }
   let msgs = explainMessages({ bookTitle: book.title, chapterTitle: chapter.title, chapterText: text, lang, visualize: !!visualize });
+  let geminiVision = null;
   if (vision) {
     try {
       const imgs = await renderChapterPagesAsDataUrls(bookId, chapter.pageStart, chapter.pageEnd, 3);
       if (imgs.length) {
-        msgs = visionExplainMessages({ bookTitle: book.title, chapterTitle: chapter.title, chapterText: text, lang, visualize: !!visualize, images: imgs });
-        yield { type: 'notice', message: `وضع القراءة بالصور: سأرفق ${imgs.length} صفحة من الكتاب (${imgs.map((i) => i.page).join('، ')}) وسيفهم النموذج الصور مباشرة.` };
+        const settings = await getSettings();
+        if (settings.geminiKey) {
+          const sysMsg = msgs[0]?.content || '';
+          const userMsg = msgs.find((m) => m.role === 'user')?.content || '';
+          const gv = geminiVisionContents({
+            images: imgs,
+            userText: (typeof userMsg === 'string' ? userMsg : userMsg.join('\n')) + '\n\n**مهم:** الصور المرفقة هي صفحات الفصل من الكتاب — اعتمد عليها كمرجع أساسي واقرأها بعناية.',
+            lang,
+          });
+          geminiVision = { key: settings.geminiKey, contents: gv.contents, systemText: sysMsg };
+          yield { type: 'notice', message: `وضع الرؤية عبر Gemini: سأفتح ${imgs.length} صفحة (${imgs.map((i) => i.page).join('، ')}) بجانب النص.` };
+        } else {
+          msgs = visionExplainMessages({ bookTitle: book.title, chapterTitle: chapter.title, chapterText: text, lang, visualize: !!visualize, images: imgs });
+          yield { type: 'notice', message: `وضع القراءة بالصور: سأرفق ${imgs.length} صفحة من الكتاب (${imgs.map((i) => i.page).join('، ')}) وسيفهم النموذج الصور مباشرة.` };
+        }
       }
     } catch (e) {
       console.warn('[SmartTutor] تعذّرت قراءة صفحات الكتاب بالصور:', e?.message || e);
     }
+  }
+  if (geminiVision) {
+    try {
+      for await (const chunk of geminiVisionStream(geminiVision.contents, geminiVision.key, { systemText: geminiVision.systemText })) {
+        yield { type: 'chunk', text: chunk };
+      }
+    } catch (e) {
+      yield { type: 'error', error: 'فشل قراءة الصور عبر Gemini: ' + (e?.message || e) + ' — فعّل مفاتيح إعدادات و أعد المحاولة أو أزل مفتاح Gemini ليُجرَّب OpenRouter.' };
+      return;
+    }
+    yield { type: 'done' };
+    return;
   }
   for await (const chunk of streamChat(msgs)) {
     if (typeof chunk === 'object' && chunk.notice) yield { type: 'notice', message: chunk.notice };
