@@ -1444,13 +1444,14 @@ async function* coursePartStream(body) {
     } catch (e) { /* fall through to text */ }
   }
   let started = false;
-  const emit = (t) => { if (t) { started = true; yield { type: 'chunk', text: t }; } };
   if (viaGemini) {
-    for await (const chunk of geminiVisionStream(viaGemini.contents, viaGemini.key, { systemText: null || texts[0]?.content })) emit(chunk);
+    for await (const chunk of geminiVisionStream(viaGemini.contents, viaGemini.key, { systemText: null || texts[0]?.content })) {
+      if (chunk) { started = true; yield { type: 'chunk', text: chunk }; }
+    }
   } else {
     for await (const chunk of streamChat(texts)) {
       if (typeof chunk === 'object' && chunk.notice) yield { type: 'notice', message: chunk.notice };
-      else emit(chunk);
+      else if (chunk) { started = true; yield { type: 'chunk', text: chunk }; }
     }
   }
   if (started) yield { type: 'done' };
